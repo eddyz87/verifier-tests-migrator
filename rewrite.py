@@ -446,7 +446,7 @@ def patch_ld_map_fd(text, map_name):
         logging.warning(f'Unexpected insn to patch: {text}')
     return text
 
-def insert_labels(insns, label_prefix):
+def insert_labels(insns):
     targets = {}
     counter = 0
     for i, insn in enumerate(insns):
@@ -457,7 +457,7 @@ def insert_labels(insns, label_prefix):
             continue
         target = i + insn.vars['goto'] + 1
         if target not in targets:
-            targets[target] = f'l{label_prefix}_{counter}'
+            targets[target] = f'l{counter}_%='
             counter += 1
         insn.vars['goto'] = targets[target]
     new_insns = []
@@ -510,11 +510,11 @@ def format_imms(text_to_name):
     imms.sort()
     return ",\n\t  ".join(imms)
 
-def patch_test_info(info, label_prefix):
+def patch_test_info(info):
     for i in info.fixup_map_hash_48b:
         info.insns[i] = patch_ld_map_fd(info.insns[i], 'map_hash_48b')
     info.imms = rename_imms(info.insns)
-    info.insns = insert_labels(info.insns, label_prefix)
+    info.insns = insert_labels(info.insns)
 
 ###############################
 ##### C code generation   #####
@@ -654,8 +654,8 @@ Can't convert test case:
     for info in infos:
         if len(info.fixup_map_hash_48b) > 0:
             preambles.add(MAP_HASH_48B)
-    for i, info in enumerate(infos):
-        patch_test_info(info, i)
+    for info in infos:
+        patch_test_info(info)
     with io.StringIO() as out:
         out.write(LICENSE)
         out.write(INCLUDES)
