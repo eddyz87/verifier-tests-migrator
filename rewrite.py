@@ -670,7 +670,7 @@ Can't convert test case:
 ###############################
 
 def convert_string(full_text, options):
-    fake_input = f'struct foo x[] = {{ {full_text} }};'
+    fake_input = 'struct foo x[] = {' + "\n" + full_text + "\n" + '};'
     parser = Parser()
     parser.set_language(C_LANGUAGE)
     tree = parser.parse(bytes(fake_input, encoding='utf8'))
