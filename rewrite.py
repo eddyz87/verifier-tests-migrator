@@ -385,7 +385,6 @@ class TestInfo:
         self.imms = {}
 
 def match_test_info(node):
-    node = NodeWrapper(node)
     node.mtype('initializer_list')
     elems = iter(node.named_children)
     info = TestInfo()
@@ -626,11 +625,19 @@ INCLUDES = '''
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
-'''
+'''.lstrip()
 
 @dataclass
 class Options:
     newlines: bool = False
+
+@dataclass
+class TopComment:
+    text: str
+
+@dataclass
+class TestCase:
+    info: TestInfo
 
 def convert_translation_unit(root_node, options):
     query = C_LANGUAGE.query('''
@@ -644,30 +651,41 @@ def convert_translation_unit(root_node, options):
     # pptree(node)
     # print(captures)
     assert len(captures) == 1
-    infos = []
-    for test_node in captures[0][0].named_children:
-        try:
-            infos.append(match_test_info(test_node))
-        except MatchError as error:
-            short_text = test_node.text[0:40]
-            logging.warning(f"""
+    top_entries = []
+    for test_node in map(NodeWrapper, captures[0][0].named_children):
+        if test_node.type == 'comment':
+            top_entries.append(TopComment(test_node.text))
+        else:
+            try:
+                top_entries.append(TestCase(match_test_info(test_node)))
+            except MatchError as error:
+                short_text = test_node.text[0:40]
+                logging.warning(f"""
 Can't convert test case:
   Location: {test_node.start_point} '{short_text}...'
   Error   : {error}
 """)
     preambles = set()
-    for info in infos:
-        if len(info.fixup_map_hash_48b) > 0:
-            preambles.add(MAP_HASH_48B)
-    for info in infos:
-        patch_test_info(info)
+    for entry in top_entries:
+        match entry:
+            case TestCase(info):
+                if len(entry.info.fixup_map_hash_48b) > 0:
+                    preambles.add(MAP_HASH_48B)
+                patch_test_info(info)
     with io.StringIO() as out:
         out.write(LICENSE)
+        out.write("\n")
         out.write(INCLUDES)
+        out.write("\n")
         for preamble in preambles:
             out.write(preamble)
-        for info in infos:
-            out.write(render_test_info(info, options))
+        for entry in top_entries:
+            match entry:
+                case TestCase(info):
+                    out.write(render_test_info(info, options))
+                case TopComment(text):
+                    out.write(text)
+                    out.write("\n")
         return out.getvalue()
 
 ###############################
