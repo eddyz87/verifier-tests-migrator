@@ -219,6 +219,11 @@ class InsnMatchers:
         imm = m.expr()
         return d('{dst} = {imm};')
 
+    def BPF_LD_IMM64(m):
+        dst = m.reg()
+        imm = m.expr()
+        return d('{dst} = {imm} ll;')
+
     def BPF_LDX_MEM(m):
         sz = m.size()
         dst = m.reg()
