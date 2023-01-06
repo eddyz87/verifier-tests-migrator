@@ -429,7 +429,7 @@ def match_test_info(node):
             case 'prog_type':
                 info.sec = convert_prog_type(value)
             case 'retval':
-                info.retval = int(value.mtype('number_literal').text)
+                info.retval = value.text
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
