@@ -6,6 +6,7 @@ import logging
 import argparse
 import tree_sitter
 from dataclasses import dataclass
+from collections import defaultdict
 from tree_sitter import Language, Parser
 
 from dstring import *
@@ -399,11 +400,19 @@ def match_test_info(node):
         # print(f'  field={field} value={value}')
         match field:
             case 'insns':
+                comments = []
                 for insn in value.mtype('initializer_list').named_children:
                     if insn.type == 'comment':
-                    	continue
-                    text = convert_insn(insn)
-                    info.insns.append(text)
+                        comments.append(insn.text)
+                    else:
+                        text = convert_insn(insn)
+                        text.comments = comments
+                        info.insns.append(text)
+                        comments = []
+                if len(info.insns) > 0:
+                    info.insns[-1].after_comments = comments
+                else:
+                    logging.warning(f'Dropping trailing comments {comments} at {value}')
             case 'errstr':
                 info.errstr = value.text
             case 'errstr_unpriv':
@@ -529,9 +538,17 @@ def enquote(text):
     escaped = text.replace('"', '\"')
     return f'"{escaped}"'
 
+def format_comments(out, comments):
+    # TODO: extend this with smarter newline handling one day
+    for c in comments:
+        out.write('\t')
+        out.write(c)
+        out.write('\n')
+
 def format_insns(insns, newlines):
     with io.StringIO() as out:
-        for insn in insns:
+        for i, insn in enumerate(insns):
+            format_comments(out, getattr(insn, 'comments', []))
             text = str(insn)
             if not text.endswith(':'):
                 out.write('\t')
@@ -540,6 +557,7 @@ def format_insns(insns, newlines):
             else:
                 out.write(enquote(text))
             out.write("\n")
+            format_comments(out, getattr(insn, 'after_comments', []))
         return out.getvalue()
 
 def cname_from_string(string):
