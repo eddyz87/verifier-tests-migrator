@@ -124,6 +124,13 @@ class CallMatcher:
         else:
             return int(text)
 
+    def bpf_func_ident(self):
+        raw_func = self._ident()
+        func_match = re.match(r'BPF_FUNC_(.+)', raw_func)
+        if not func_match:
+            raise MatchError(d('Strange func name {raw_func}'))
+        return Imm(f'bpf_{func_match[1]}')
+
     _ALU_OPS = {
         'BPF_ADD': '+= ',
         'BPF_SUB': '-= ',
@@ -299,11 +306,11 @@ class InsnMatchers:
         m.zero()
         m.zero()
         m.zero()
-        raw_func = m._ident()
-        func_match = re.match(r'BPF_FUNC_(.+)', raw_func)
-        if not func_match:
-            raise MatchError(d('Strange func name {raw_func}'))
-        func = Imm(f'bpf_{func_match[1]}')
+        func = m.bpf_func_ident()
+        return d('call {func};')
+
+    def BPF_EMIT_CALL(m):
+        func = m.bpf_func_ident()
         return d('call {func};')
 
 def func_matchers_map():
