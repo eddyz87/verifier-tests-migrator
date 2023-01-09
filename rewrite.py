@@ -72,10 +72,18 @@ class CallMatcher:
         arg = self._next_arg()
 
         def _regno_ident():
-            m = re.match(r'^BPF_REG_([0-9]+)$', arg.mtype('identifier').text)
-            if m is None:
-                raise MatchError()
-            return m[1]
+            ident = arg.mtype('identifier').text
+            if m := re.match(r'^BPF_REG_([0-9]+)$', ident):
+                return m[1]
+            match ident:
+                case 'BPF_REG_ARG1': return 1
+                case 'BPF_REG_ARG2': return 2
+                case 'BPF_REG_ARG3': return 3
+                case 'BPF_REG_ARG4': return 4
+                case 'BPF_REG_ARG5': return 5
+                case 'BPF_REG_CTX' : return 6
+                case 'BPF_REG_FP'  : return 10
+            raise MatchError()
 
         def _regno_number():
             num = int(arg.mtype('number_literal').text)
@@ -97,6 +105,8 @@ class CallMatcher:
             return 'u64'
         elif ident == 'BPF_W':
             return 'u32'
+        elif ident == 'BPF_H':
+            return 'u16'
         elif ident == 'BPF_B':
             return 'u8'
         else:
@@ -131,7 +141,15 @@ class CallMatcher:
             raise MatchError(d('Strange func name {raw_func}'))
         return Imm(f'bpf_{func_match[1]}')
 
+    _ATOMIC_OPS = {
+        'BPF_ADD': '+=',
+        'BPF_AND': '&=',
+        'BPF_OR' : '|=',
+        'BPF_XOR': '^='
+        }
+
     _ALU_OPS = {
+        'BPF_MOV': '= ',
         'BPF_ADD': '+= ',
         'BPF_SUB': '-= ',
         'BPF_MUL': '*= ',
@@ -142,8 +160,8 @@ class CallMatcher:
         'BPF_LSH': '<<= ',
         'BPF_RSH': '>>= ',
         'BPF_XOR': '^= ',
-        'BPF_SRA': 's>>= ',
         'BPF_NEG': '= -',
+        'BPF_ARSH': 's>>= ',
         }
 
     _JMP_OPS = {
@@ -158,6 +176,12 @@ class CallMatcher:
         'BPF_JSLT': "s<",
         'BPF_JSLE': "s<=",
         }
+
+    def atomic_op(self):
+        op = self._ident()
+        if op in CallMatcher._ATOMIC_OPS:
+            return CallMatcher._ATOMIC_OPS[op]
+        raise MatchError(f'Unsupported ALU op: {op}')
 
     def alu_op(self):
         op = self._ident()
@@ -224,6 +248,11 @@ class InsnMatchers:
         imm = m.expr()
         return d('{dst} = {imm};')
 
+    def BPF_MOV32_REG(m):
+        dst = m.reg32()
+        src = m.reg32()
+        return d('{dst} = {src};')
+
     def BPF_LD_IMM64(m):
         dst = m.reg()
         imm = m.expr()
@@ -250,10 +279,28 @@ class InsnMatchers:
         off = m.off()
         return d('*({sz}*)({dst} {off}) = {src};')
 
+    def BPF_ATOMIC_OP___nofetch(m):
+        sz = m.size()
+        op = m.atomic_op()
+        dst = m.reg()
+        src = m.reg()
+        off = m.off()
+        return d('lock *(u64 *)({dst} {off}) {op} {src}')
+
     def BPF_LD_MAP_FD(m):
         dst = m.reg()
         imm = m.expr()
         return d('{dst} = {imm} ll;')
+
+    def BPF_LD_ABS(m):
+        sz = m.size()
+        imm = m.expr()
+        return d('r0 = *({sz}*)skb[{imm}];')
+
+    def BPF_LD_IND(m):
+        sz = m.size()
+        src = m.reg()
+        return d('r0 = *({sz}*)skb[{src}];')
 
     def BPF_JMP_IMM(m):
         op = m.jmp_op()
@@ -287,6 +334,10 @@ class InsnMatchers:
         m._next_arg().mtype('identifier').mtext('BPF_JA')
         m.zero()
         m.zero()
+        goto = m.number()
+        return d('goto {goto};')
+
+    def BPF_JMP_A(m):
         goto = m.number()
         return d('goto {goto};')
 
