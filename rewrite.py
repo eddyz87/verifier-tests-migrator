@@ -368,10 +368,29 @@ def convert_flags(node):
     return [FLAGS[flag]]
 
 SEC_BY_PROG_TYPE = {
-    'BPF_PROG_TYPE_SCHED_CLS': 'tc',
-    'BPF_PROG_TYPE_TRACEPOINT': 'tracepoint',
-    'BPF_PROG_TYPE_SCHED_ACT': 'action',
-    'BPF_PROG_TYPE_XDP': 'xdp',
+    'BPF_PROG_TYPE_CGROUP_SKB'             : 'cgroup/skb',
+    'BPF_PROG_TYPE_CGROUP_SOCK'            : 'cgroup/sock',
+    # 'BPF_PROG_TYPE_CGROUP_SOCK_ADDR': '',
+    'BPF_PROG_TYPE_CGROUP_SYSCTL'          : 'cgroup/sysctl',
+    'BPF_PROG_TYPE_KPROBE'                 : 'kprobe',
+    'BPF_PROG_TYPE_LSM'                    : 'lsm',
+    'BPF_PROG_TYPE_LWT_IN'                 : 'lwt_in',
+    'BPF_PROG_TYPE_LWT_OUT'                : 'lwt_out',
+    'BPF_PROG_TYPE_LWT_XMIT'               : 'lwt_xmit',
+    'BPF_PROG_TYPE_PERF_EVENT'             : 'perf_event',
+    'BPF_PROG_TYPE_RAW_TRACEPOINT'         : 'raw_tracepoint',
+    'BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE': 'raw_tracepoint.w',
+    'BPF_PROG_TYPE_SCHED_ACT'              : 'action',
+    'BPF_PROG_TYPE_SCHED_CLS'              : 'tc',
+    'BPF_PROG_TYPE_SK_LOOKUP'              : 'sk_lookup',
+    'BPF_PROG_TYPE_SK_MSG'                 : 'sk_msg',
+    'BPF_PROG_TYPE_SK_REUSEPORT'           : 'sk_reuseport',
+    'BPF_PROG_TYPE_SK_SKB'                 : 'sk_skb',
+    'BPF_PROG_TYPE_SOCKET_FILTER'          : 'socket',
+    'BPF_PROG_TYPE_SOCK_OPS'               : 'sockops',
+    'BPF_PROG_TYPE_TRACEPOINT'             : 'tracepoint',
+    # TODO: 'BPF_PROG_TYPE_TRACING': '',
+    'BPF_PROG_TYPE_XDP'                    : 'xdp',
 }
 
 def convert_prog_type(node):
