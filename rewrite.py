@@ -5,6 +5,7 @@ import re
 import logging
 import argparse
 import tree_sitter
+from enum import Enum
 from dataclasses import dataclass
 from collections import defaultdict
 from tree_sitter import Language, Parser
@@ -371,20 +372,36 @@ def convert_prog_type(node):
         raise MatchError(f'Unsupported prog_type {text}')
     return SEC_BY_PROG_TYPE[text]
 
+class Verdict(Enum):
+    ACCEPT = 1
+    REJECT = 2
+    VERBOSE_ACCEPT = 3
+
 class TestInfo:
     def __init__(self):
         self.name = None
         self.insns = []
         self.fixup_map_hash_48b = []
+        self.result = None
+        self.result_unpriv = None
         self.errstr = None
         self.errstr_unpriv = None
-        self.loglevel = None
-        self.success = True
-        self.success_unpriv = True
         self.retval = None
         self.flags = []
         self.sec = "socket" # default section
         self.imms = {}
+
+def parse_test_result(node, field_name):
+    match node.text:
+        case 'ACCEPT':
+            return Verdict.ACCEPT
+        case 'VERBOSE_ACCEPT':
+            return Verdict.VERBOSE_ACCEPT
+        case 'REJECT':
+            return Verdict.REJECT
+        case _:
+            logging.warning(f"Unsupported '{field_name}' value '{value.text}'")
+            return None
 
 def match_test_info(node):
     node.mtype('initializer_list')
@@ -419,23 +436,9 @@ def match_test_info(node):
             case 'errstr_unpriv':
                 info.errstr_unpriv = value.text
             case 'result':
-                match value.text:
-                    case 'ACCEPT':
-                        pass
-                    case 'VERBOSE_ACCEPT':
-                        info.loglevel = 4
-                    case 'REJECT':
-                        info.success = False
-                    case _:
-                        logging.warning(f"Unsupported 'result' value '{value.text}'")
+                info.result = parse_test_result(value, 'result')
             case 'result_unpriv':
-                match value.text:
-                    case 'ACCEPT':
-                        pass
-                    case 'REJECT':
-                        info.success_unpriv = False
-                    case _:
-                        logging.warning(f"Unsupported 'result' value '{value.text}'")
+                info.result_unpriv = parse_test_result(value, 'result_unpriv')
             case 'fixup_map_hash_48b':
                 info.fixup_map_hash_48b = convert_int_list(value)
             case 'flags':
@@ -564,36 +567,90 @@ def format_insns(insns, newlines):
 def cname_from_string(string):
     return re.sub(r'[^\d\w]', '_', string)
 
-def render_test_info(info, options):
-    attrs = ['__naked']
-    if not info.success:
-        attrs.append('__failure')
-    if not info.success_unpriv:
-        attrs.append('__failure_unpriv')
-    if info.loglevel:
-        attrs.append(f'__log_level({info.loglevel})')
-    if info.errstr:
-        attrs.append(f'__msg({info.errstr})')
-    if info.errstr_unpriv:
-        attrs.append(f'__msg_unpriv({info.errstr_unpriv})')
+def collect_attrs(info, unpriv):
+    attrs = []
+    result = info.result
+    errstr = info.errstr
+    if unpriv:
+        if info.result_unpriv:
+            result = info.result_unpriv
+        if info.errstr_unpriv:
+            errstr = info.errstr_unpriv
+    match result:
+        case Verdict.VERBOSE_ACCEPT:
+            attrs.append('__log_level(2)')
+        case Verdict.REJECT:
+            attrs.append('__failure')
+    if errstr:
+        attrs.append(f'__msg({errstr})')
     if info.retval:
         attrs.append(f'__retval({info.retval})')
     attrs.extend(info.flags)
-    attrs_text = "\n".join(attrs)
-    nl = '\n' if len(attrs) > 1 else ' '
-    insn_text = format_insns(info.insns, options.newlines)
-    imms_text = format_imms(info.imms)
+    return attrs
+
+def render_attrs(attrs):
+    attrs = sorted(attrs, key=len)
+    with io.StringIO() as out:
+        line_len = 0
+        for attr in attrs:
+            if line_len + len(attr) > 80 and line_len != 0:
+                out.write("\n")
+                line_len = 0
+            if line_len > 0:
+                out.write(' ')
+                line_len += 1
+            out.write(attr)
+            line_len += len(attr)
+        if out.tell() != 0:
+            out.write("\n")
+        return out.getvalue()
+
+def render_test_info(info, options):
+    priv_attrs = collect_attrs(info, False)
+    unpriv_attrs = collect_attrs(info, True)
+
     comment = info.name.strip('"')
     func_name = cname_from_string(comment)
-    return f'''
+    insn_text = format_insns(info.insns, options.newlines)
+    imms_text = format_imms(info.imms)
+
+    if priv_attrs == unpriv_attrs:
+        priv_attrs.append('__naked')
+        priv_attrs.append('__priv_and_unpriv')
+        return f'''
 /* {comment} */
 SEC("{info.sec}")
-{attrs_text}{nl}void {func_name}(void)
+{render_attrs(priv_attrs)}void {func_name}(void)
 {{
 	asm volatile (
 {insn_text}	:
 	: {imms_text}
 	: __clobber_all);
+}}
+'''
+    else:
+        unpriv_attrs.append('__unpriv')
+        return f'''
+/* {comment} */
+__naked __always_inline
+void {func_name}_body(void)
+{{
+	asm volatile (
+{insn_text}	:
+	: {imms_text}
+	: __clobber_all);
+}}
+
+SEC("{info.sec}")
+{render_attrs(priv_attrs)}void {func_name}(void)
+{{
+	{func_name}_body();
+}}
+
+SEC("{info.sec}")
+{render_attrs(unpriv_attrs)}void {func_name}_unpriv(void)
+{{
+	{func_name}_body();
 }}
 '''
 
