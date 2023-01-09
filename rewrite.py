@@ -256,7 +256,9 @@ class InsnMatchers:
     def BPF_LD_IMM64(m):
         dst = m.reg()
         imm = m.expr()
-        return d('{dst} = {imm} ll;')
+        insn = d('{dst} = {imm} ll;')
+        insn.double_size = True
+        return insn
 
     def BPF_LDX_MEM(m):
         sz = m.size()
@@ -290,7 +292,9 @@ class InsnMatchers:
     def BPF_LD_MAP_FD(m):
         dst = m.reg()
         imm = m.expr()
-        return d('{dst} = {imm} ll;')
+        insn = d('{dst} = {imm} ll;')
+        insn.double_size = True
+        return insn
 
     def BPF_LD_ABS(m):
         sz = m.size()
@@ -502,9 +506,13 @@ def match_test_info(node):
                     if insn.type == 'comment':
                         comments.append(insn.text)
                     else:
-                        text = convert_insn(insn)
-                        text.comments = comments
-                        info.insns.append(text)
+                        insn = convert_insn(insn)
+                        insn.comments = comments
+                        info.insns.append(insn)
+                        if getattr(insn, 'double_size', False):
+                            dummy = DString('__dummy__', {})
+                            dummy.dummy = True
+                            info.insns.append(dummy)
                         comments = []
                 if len(info.insns) > 0:
                     info.insns[-1].after_comments = comments
@@ -606,7 +614,6 @@ def format_imms(text_to_name):
     imms.sort()
     return ",\n\t  ".join(imms)
 
-# TODO: LD_MAP_FD (and some others) count as two instructions!!!
 def patch_test_info(info):
     for map_name in info.map_fixups.keys():
         for i in info.map_fixups[map_name]:
@@ -633,6 +640,8 @@ def format_comments(out, comments):
 def format_insns(insns, newlines):
     with io.StringIO() as out:
         for i, insn in enumerate(insns):
+            if getattr(insn, 'dummy', False):
+                continue
             format_comments(out, getattr(insn, 'comments', []))
             text = str(insn)
             if not text.endswith(':'):
@@ -694,6 +703,8 @@ def render_test_info(info, options):
     func_name = cname_from_string(comment)
     insn_text = format_insns(info.insns, options.newlines)
     imms_text = format_imms(info.imms)
+    if imms_text:
+        imms_text = ' ' + imms_text
 
     if priv_attrs == unpriv_attrs:
         priv_attrs.append('__naked')
@@ -705,7 +716,7 @@ SEC("{info.sec}")
 {{
 	asm volatile (
 {insn_text}	:
-	: {imms_text}
+	:{imms_text}
 	: __clobber_all);
 }}
 '''
@@ -718,7 +729,7 @@ void {func_name}_body(void)
 {{
 	asm volatile (
 {insn_text}	:
-	: {imms_text}
+	:{imms_text}
 	: __clobber_all);
 }}
 
@@ -753,7 +764,7 @@ def print_auxiliary_definitions(out, infos):
     def do_print(text):
         out.write(text)
 
-    if need_map('map_hash_48b', 'map_hash_16b', 'map_hash_8b'):
+    if need_map('map_hash_48b', 'map_array_48b'):
         do_print('''
 #define MAX_ENTRIES 11
 ''')

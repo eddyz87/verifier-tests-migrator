@@ -85,5 +85,88 @@ void invalid_and_of_negative_number(void)
 }
 '''.lstrip())
 
+    def test_double_size_insn(self):
+        self._aux('''
+{
+	"dsize",
+	.insns = {
+	BPF_LD_MAP_FD(BPF_REG_1, 0),
+	BPF_EXIT_INSN(),
+	BPF_LD_MAP_FD(BPF_REG_1, 0),
+	BPF_EXIT_INSN(),
+	BPF_LD_MAP_FD(BPF_REG_1, 0),
+	BPF_EXIT_INSN(),
+	},
+	.fixup_map_hash_8b = { 0, 3, 6 },
+	.result = ACCEPT,
+},
+''', '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1);
+	__type(key, long long);
+	__type(value, long long);
+} map_hash_8b SEC(".maps");
+
+/* dsize */
+SEC("socket")
+__naked __priv_and_unpriv
+void dsize(void)
+{
+	asm volatile (
+	"r1 = %[map_hash_8b] ll;"
+	"exit;"
+	"r1 = %[map_hash_8b] ll;"
+	"exit;"
+	"r1 = %[map_hash_8b] ll;"
+	"exit;"
+	:
+	: __imm_addr(map_hash_8b)
+	: __clobber_all);
+}
+'''.lstrip())
+
+    def test_double_size_insn2(self):
+        self._aux('''
+{
+	"dsize2",
+	.insns = {
+	BPF_LD_IMM64(BPF_REG_1, 0),
+	BPF_JMP_A(-3),
+	BPF_LD_IMM64(BPF_REG_1, 0),
+	BPF_JMP_A(-6),
+	},
+	.result = ACCEPT,
+},
+''', '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+/* dsize2 */
+SEC("socket")
+__naked __priv_and_unpriv
+void dsize2(void)
+{
+	asm volatile (
+"l0_%=:"
+	"r1 = 0 ll;"
+	"goto l0_%=;"
+	"r1 = 0 ll;"
+	"goto l0_%=;"
+	:
+	:
+	: __clobber_all);
+}
+'''.lstrip())
+
 if __name__ == '__main__':
     unittest.main()
