@@ -30,6 +30,7 @@ class Tests(unittest.TestCase):
 	},
 	.fixup_map_hash_48b = { 3 },
 	.errstr = "R0 max value is outside of the allowed memory range",
+	.errstr_unpriv = "abra-cadabra",
 	.result = REJECT,
 	.flags = F_NEEDS_EFFICIENT_UNALIGNED_ACCESS,
 },
@@ -47,7 +48,7 @@ struct test_val {
 	int foo[MAX_ENTRIES];
 };
 
-struct map_struct {
+struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
@@ -55,12 +56,8 @@ struct map_struct {
 } map_hash_48b SEC(".maps");
 
 /* invalid and of negative number */
-SEC("socket")
-__naked
-__failure
-__msg("R0 max value is outside of the allowed memory range")
-__needs_efficient_unaligned_access
-void invalid_and_of_negative_number(void)
+__naked __always_inline
+void invalid_and_of_negative_number_body(void)
 {
 	asm volatile (
 	"*(u64*)(r10 -8) = 0;"
@@ -68,12 +65,13 @@ void invalid_and_of_negative_number(void)
 	"r2 += %[__imm_0];"
 	"r1 = %[map_hash_48b] ll;"
 	"call %[bpf_map_lookup_elem];"
-	"if r0 == 0 goto l0_0;"
+	"if r0 == 0 goto l0_%=;"
 	"r1 = *(u8*)(r0 +0);"
 	"r1 &= -4;"
 	"r1 <<= 2;"
 	"r0 += r1;"
-"l0_0:"
+"l0_%=:"
+	// comment
 	"*(u64*)(r0 +0) = %[test_val_foo_offset];"
 	"exit;"
 	:
@@ -82,6 +80,21 @@ void invalid_and_of_negative_number(void)
 	  __imm(bpf_map_lookup_elem),
 	  __imm_addr(map_hash_48b)
 	: __clobber_all);
+}
+
+SEC("socket")
+__failure __needs_efficient_unaligned_access
+__msg("R0 max value is outside of the allowed memory range")
+void invalid_and_of_negative_number(void)
+{
+	invalid_and_of_negative_number_body();
+}
+
+SEC("socket")
+__unpriv __failure __msg("abra-cadabra") __needs_efficient_unaligned_access
+void invalid_and_of_negative_number_unpriv(void)
+{
+	invalid_and_of_negative_number_body();
 }
 '''.lstrip())
 
