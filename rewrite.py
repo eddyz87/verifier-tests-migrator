@@ -50,7 +50,6 @@ class CallMatcher:
 
     def __init__(self, node):
         node.mtype('call_expression')
-        self._func_name = node['function'].text
         self._args = iter(node['arguments'].named_children)
 
     def _next_arg(self):
@@ -68,10 +67,6 @@ class CallMatcher:
             raise MatchError()
         except StopIteration:
             pass
-
-    def func(self, name):
-        if self._func_name != name:
-            raise MatchError()
 
     def _regno(self):
         arg = self._next_arg()
@@ -311,20 +306,27 @@ class InsnMatchers:
         func = Imm(f'bpf_{func_match[1]}')
         return d('call {func};')
 
+def func_matchers_map():
+    func_matchers = defaultdict(list)
+    for name, fn in InsnMatchers.__dict__.items():
+        if not callable(fn):
+            continue
+        func_name_match = re.match(r'^(BPF_.+?)(?:___.+)?$', name)
+        if not func_name_match:
+            continue
+        func_name = func_name_match[1]
+        func_matchers[func_name].append(fn)
+    return defaultdict(tuple, func_matchers)
+
+FUNC_MATCHERS = func_matchers_map()
+
 def convert_insn(call_node):
-    match_funcs = [(name, attr)
-                   for name, attr in InsnMatchers.__dict__.items()]
     if is_debug():
         logging.debug('convert_insn: %s', call_node.text)
         pptree(call_node)
-    for name, fn in match_funcs:
+    for fn in FUNC_MATCHERS[call_node['function'].text]:
         m = CallMatcher(call_node)
         try:
-            func_name_match = re.match(r'^(BPF_.+?)(?:___.+)?$', name)
-            if not func_name_match:
-                continue
-            func_name = func_name_match[1]
-            m.func(func_name)
             result = fn(m)
             m.ensure_args_consumed()
             return result
