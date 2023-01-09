@@ -535,11 +535,11 @@ def match_test_info(node):
 ##### Instructions patching #####
 #################################
 
-def patch_ld_map_fd(text, map_name):
+def patch_ld_map_fd(text, map_name, test_name):
     if 'imm' in text.vars:
         text.vars['imm'] = Imm(f'&{map_name}')
     else:
-        logging.warning(f'Unexpected insn to patch: {text}')
+        logging.warning(f'Unexpected insn to patch: {text} {map_name} {test_name}')
     return text
 
 def insert_labels(insns):
@@ -606,10 +606,11 @@ def format_imms(text_to_name):
     imms.sort()
     return ",\n\t  ".join(imms)
 
+# TODO: LD_MAP_FD (and some others) count as two instructions!!!
 def patch_test_info(info):
     for map_name in info.map_fixups.keys():
         for i in info.map_fixups[map_name]:
-            info.insns[i] = patch_ld_map_fd(info.insns[i], map_name)
+            info.insns[i] = patch_ld_map_fd(info.insns[i], map_name, info.name)
     info.imms = rename_imms(info.insns)
     info.insns = insert_labels(info.insns)
 
