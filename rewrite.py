@@ -684,7 +684,8 @@ SEC("{info.sec}")
 '''
 
 MAP_NAMES = set(['map_hash_48b', 'map_hash_16b', 'map_hash_8b',
-                 'cgroup_storage', 'percpu_cgroup_storage'])
+                 'cgroup_storage', 'percpu_cgroup_storage',
+                 'map_array_48b'])
 
 def print_auxiliary_definitions(out, infos):
     used_maps = set()
@@ -710,19 +711,32 @@ def print_auxiliary_definitions(out, infos):
 #define TEST_DATA_LEN 64
 ''')
 
-    if need_map('map_hash_48b'):
+    if need_map('map_hash_48b', 'map_array_48b'):
         do_print('''
 struct test_val {
 	unsigned int index;
 	int foo[MAX_ENTRIES];
 };
+''')
 
+    if need_map('map_hash_48b'):
+        do_print('''
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
 	__type(value, struct test_val);
 } map_hash_48b SEC(".maps");
+''')
+
+    if need_map('map_array_48b'):
+        do_print('''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct test_val);
+} map_array_48b SEC(".maps");
 ''')
 
     if need_map('map_hash_16b'):
