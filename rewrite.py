@@ -381,7 +381,7 @@ class TestInfo:
     def __init__(self):
         self.name = None
         self.insns = []
-        self.fixup_map_hash_48b = []
+        self.map_fixups = {}
         self.result = None
         self.result_unpriv = None
         self.errstr = None
@@ -439,8 +439,8 @@ def match_test_info(node):
                 info.result = parse_test_result(value, 'result')
             case 'result_unpriv':
                 info.result_unpriv = parse_test_result(value, 'result_unpriv')
-            case 'fixup_map_hash_48b':
-                info.fixup_map_hash_48b = convert_int_list(value)
+            case map_fixup if (map_name := map_fixup.removeprefix('fixup_')) in MAP_NAMES:
+                info.map_fixups[map_name] = convert_int_list(value)
             case 'flags':
                 info.flags.extend(convert_flags(value))
             case 'prog_type':
@@ -528,8 +528,9 @@ def format_imms(text_to_name):
     return ",\n\t  ".join(imms)
 
 def patch_test_info(info):
-    for i in info.fixup_map_hash_48b:
-        info.insns[i] = patch_ld_map_fd(info.insns[i], 'map_hash_48b')
+    for map_name in info.map_fixups.keys():
+        for i in info.map_fixups[map_name]:
+            info.insns[i] = patch_ld_map_fd(info.insns[i], map_name)
     info.imms = rename_imms(info.insns)
     info.insns = insert_labels(info.insns)
 
@@ -654,44 +655,92 @@ SEC("{info.sec}")
 }}
 '''
 
-MAP_HASH_48B = '''
-#define MAX_ENTRIES 11
+MAP_NAMES = set(['map_hash_48b', 'map_hash_16b', 'map_hash_8b',
+                 'cgroup_storage', 'percpu_cgroup_storage'])
 
+def print_auxiliary_definitions(out, infos):
+    used_maps = set()
+
+    for info in infos:
+        for map_name, fixups in info.map_fixups.items():
+            if fixups:
+                used_maps.add(map_name)
+
+    def need_map(*names):
+        return any([n in used_maps for n in names])
+
+    def do_print(text):
+        out.write(text)
+
+    if need_map('map_hash_48b', 'map_hash_16b', 'map_hash_8b'):
+        do_print('''
+#define MAX_ENTRIES 11
+''')
+
+    if need_map('cgroup_storage', 'percpu_cgroup_storage'):
+        do_print('''
+#define TEST_DATA_LEN 64
+''')
+
+    if need_map('map_hash_48b'):
+        do_print('''
 struct test_val {
 	unsigned int index;
 	int foo[MAX_ENTRIES];
 };
 
-struct map_struct {
+struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
 	__type(value, struct test_val);
 } map_hash_48b SEC(".maps");
-'''
+''')
 
-MAP_HASH_16B = '''
+    if need_map('map_hash_16b'):
+            do_print('''
 struct other_val {
 	long long foo;
 	long long bar;
 };
 
-struct map_struct {
+struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
 	__type(value, struct other_val);
 } map_hash_16b SEC(".maps");
-'''
+''')
 
-MAP_HASH_8B = '''
-struct map_struct {
+    if need_map('map_hash_8b'):
+        do_print('''
+struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
 	__type(value, long long);
 } map_hash_8b SEC(".maps");
-'''
+''')
+
+    if need_map('cgroup_storage'):
+        do_print('''
+struct {
+	__uint(type, BPF_MAP_TYPE_CGROUP_STORAGE);
+	__uint(max_entries, 0);
+	__type(key, struct bpf_cgroup_storage_key);
+	__type(value, char[TEST_DATA_LEN]);
+} cgroup_storage SEC(".maps");
+''')
+
+    if need_map('percpu_cgroup_storage'):
+        do_print('''
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE);
+	__uint(max_entries, 0);
+	__type(key, struct bpf_cgroup_storage_key);
+	__type(value, char[64]);
+} cgroup_storage SEC(".maps");
+''')
 
 LICENSE = '''
 // SPDX-License-Identifier: GPL-2.0
@@ -727,13 +776,13 @@ def convert_translation_unit(root_node, options):
     # pptree(node)
     # print(captures)
     assert len(captures) == 1
-    top_entries = []
+    entries = []
     for test_node in map(NodeWrapper, captures[0][0].named_children):
         if test_node.type == 'comment':
-            top_entries.append(TopComment(test_node.text))
+            entries.append(TopComment(test_node.text))
         else:
             try:
-                top_entries.append(TestCase(match_test_info(test_node)))
+                entries.append(TestCase(match_test_info(test_node)))
             except MatchError as error:
                 short_text = test_node.text[0:40]
                 logging.warning(f"""
@@ -741,23 +790,17 @@ Can't convert test case:
   Location: {test_node.start_point} '{short_text}...'
   Error   : {error}
 """)
-    preambles = set()
-    for entry in top_entries:
-        match entry:
-            case TestCase(info):
-                if len(entry.info.fixup_map_hash_48b) > 0:
-                    preambles.add(MAP_HASH_48B)
-                patch_test_info(info)
+
     with io.StringIO() as out:
         out.write(LICENSE)
         out.write("\n")
         out.write(INCLUDES)
-        out.write("\n")
-        for preamble in preambles:
-            out.write(preamble)
-        for entry in top_entries:
+        print_auxiliary_definitions(out, map(lambda e: e.info,
+                                             filter(lambda e: isinstance(e, TestCase), entries)))
+        for entry in entries:
             match entry:
                 case TestCase(info):
+                    patch_test_info(info)
                     out.write(render_test_info(info, options))
                 case TopComment(text):
                     out.write(text)
