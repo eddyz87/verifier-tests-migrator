@@ -499,6 +499,7 @@ def convert_int_list(node):
 
 FLAGS = {
     'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS': '__needs_efficient_unaligned_access',
+    'BPF_F_TEST_STATE_FREQ': '__f_test_state_freq'
 }
 
 def convert_flags(node):
