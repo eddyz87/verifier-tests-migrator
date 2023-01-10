@@ -453,9 +453,7 @@ def func_matchers_map():
 FUNC_MATCHERS = func_matchers_map()
 
 def convert_insn(call_node):
-    if is_debug():
-        logging.debug('convert_insn: %s', call_node.text)
-        pptree(call_node)
+    errors = []
     for fn in FUNC_MATCHERS[call_node['function'].text]:
         m = CallMatcher(call_node)
         try:
@@ -463,11 +461,19 @@ def convert_insn(call_node):
             m.ensure_args_consumed()
             return result
         except MatchError as e:
-            if is_debug() and e.args[0]:
-                logging.debug(f'{name} no match: {e}')
-
+            if is_debug():
+                errors.append((fn, e))
     text = call_node.text.replace('\n', ' ')
     logging.warning(f"Can't convert {text}")
+    if is_debug():
+        with io.StringIO() as msg:
+            msg.write("\n")
+            msg.write("Errors:\n")
+            for fn, e in errors:
+                msg.write(f"  {fn.__name__:<30}: {e}\n")
+            msg.write(f"Parse tree:\n")
+            msg.write(pptree(call_node))
+            logging.debug(msg.getvalue())
     return d('NOT CONVERTED: {text}')
 
 #################################
