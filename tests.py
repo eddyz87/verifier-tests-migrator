@@ -13,6 +13,9 @@ class Tests(unittest.TestCase):
     def test_simple(self):
         self._aux('''
 {
+	/* some
+	 * comment
+	 */
 	"invalid and of negative number",
 	.insns = {
 	BPF_ST_MEM(BPF_DW, BPF_REG_10, -8, 0),
@@ -56,6 +59,9 @@ struct {
 	__type(value, struct test_val);
 } map_hash_48b SEC(".maps");
 
+/* some
+ * comment
+ */
 /* invalid and of negative number */
 __naked __always_inline
 void invalid_and_of_negative_number_body(void)

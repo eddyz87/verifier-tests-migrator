@@ -548,6 +548,7 @@ class Verdict(Enum):
 
 class TestInfo:
     def __init__(self):
+        self.comment = None
         self.name = None
         self.insns = []
         self.map_fixups = {}
@@ -576,7 +577,12 @@ def match_test_info(node):
     node.mtype('initializer_list')
     elems = iter(node.named_children)
     info = TestInfo()
-    info.name = mnext(elems).mtype('string_literal').text
+    name_or_comment = mnext(elems)
+    if name_or_comment.type == 'comment':
+        info.comment = name_or_comment.text
+        info.name = mnext(elems).mtype('string_literal').text
+    else:
+        info.name = name_or_comment.mtype('string_literal').text
     while True:
         pair = next(elems, None)
         if pair is None:
@@ -781,12 +787,20 @@ def render_attrs(attrs):
             out.write("\n")
         return out.getvalue()
 
+def reindent_comment(text, level):
+    if not text:
+        return ''
+    text = text.strip()
+    indent = "\n" + "\t" * level
+    return re.sub(r"\n\t+", indent, text) + "\n"
+
 def render_test_info(info, options):
     priv_attrs = collect_attrs(info, False)
     unpriv_attrs = collect_attrs(info, True)
 
-    comment = info.name.strip('"')
-    func_name = cname_from_string(comment)
+    comment = reindent_comment(info.comment, 0)
+    name_comment = info.name.strip('"')
+    func_name = cname_from_string(name_comment)
     insn_text = format_insns(info.insns, options.newlines)
     imms_text = format_imms(info.imms)
     if imms_text:
@@ -796,7 +810,7 @@ def render_test_info(info, options):
         priv_attrs.append('__naked')
         priv_attrs.append('__priv_and_unpriv')
         return f'''
-/* {comment} */
+{comment}/* {name_comment} */
 SEC("{info.sec}")
 {render_attrs(priv_attrs)}void {func_name}(void)
 {{
@@ -809,7 +823,7 @@ SEC("{info.sec}")
     else:
         unpriv_attrs.append('__unpriv')
         return f'''
-/* {comment} */
+{comment}/* {name_comment} */
 __naked __always_inline
 void {func_name}_body(void)
 {{
