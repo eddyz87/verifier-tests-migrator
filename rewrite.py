@@ -848,7 +848,7 @@ SEC("{info.sec}")
 
 MAP_NAMES = set(['map_hash_48b', 'map_hash_16b', 'map_hash_8b',
                  'cgroup_storage', 'percpu_cgroup_storage',
-                 'map_array_48b'])
+                 'map_array_48b', 'map_xskmap'])
 
 def print_auxiliary_definitions(out, infos):
     used_maps = set()
@@ -945,6 +945,16 @@ struct {
 	__type(key, struct bpf_cgroup_storage_key);
 	__type(value, char[64]);
 } cgroup_storage SEC(".maps");
+''')
+
+    if need_map('map_xskmap'):
+        do_print('''
+struct {
+	__uint(type, BPF_MAP_TYPE_XSKMAP);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, int);
+} map_xskmap SEC(".maps");
 ''')
 
 LICENSE = '''
