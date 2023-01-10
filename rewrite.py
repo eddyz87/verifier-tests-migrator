@@ -35,7 +35,7 @@ def pptree(tree):
                     continue
                 recur(child, lvl + 1)
         recur(tree, 0)
-        print(out.getvalue())
+        return out.getvalue()
 
 #################################
 ##### Instructions matching #####
@@ -58,8 +58,11 @@ class CallMatcher:
         except StopIteration:
             raise MatchError()
 
-    def _ident(self):
-        return self._next_arg().mtype('identifier').text
+    def _ident(self, expected=None):
+        it = self._next_arg().mtype('identifier')
+        if expected:
+            it.mtext(expected)
+        return it.text
 
     def ensure_args_consumed(self):
         try:
@@ -148,6 +151,13 @@ class CallMatcher:
         'BPF_XOR': '^='
         }
 
+    _ATOMIC_FETCH_OPS = {
+        'BPF_ADD': 'add',
+        'BPF_AND': 'and',
+        'BPF_OR' : 'or',
+        'BPF_XOR': 'xor'
+        }
+
     _ALU_OPS = {
         'BPF_MOV': '= ',
         'BPF_ADD': '+= ',
@@ -177,11 +187,27 @@ class CallMatcher:
         'BPF_JSLE': "s<=",
         }
 
+    def match_dict(node, d, name):
+        text = node.text
+        if text in d:
+            return d[text]
+        raise MatchError(f'Unexpected {name}: {text}')
+
     def atomic_op(self):
-        op = self._ident()
-        if op in CallMatcher._ATOMIC_OPS:
-            return CallMatcher._ATOMIC_OPS[op]
-        raise MatchError(f'Unsupported ALU op: {op}')
+        def match_fetch(node):
+            return CallMatcher.match_dict(
+                node, CallMatcher._ATOMIC_FETCH_OPS, 'atomic fetch op')
+
+        arg = self._next_arg()
+        if arg.type == 'binary_expression' and arg['operator'].text == '|':
+            if arg['left'].text == 'BPF_FETCH' and arg['right'].type == 'identifier':
+                return match_fetch(arg['right']), True
+            if arg['right'].text == 'BPF_FETCH' and arg['left'].type == 'identifier':
+                return match_fetch(arg['left']), True
+        elif arg.type == 'identifier':
+            return CallMatcher.match_dict(arg, CallMatcher._ATOMIC_OPS, 'atomic op'), False
+
+        raise MatchError(f'Strange atomic_op {arg}')
 
     def alu_op(self):
         op = self._ident()
@@ -281,13 +307,57 @@ class InsnMatchers:
         off = m.off()
         return d('*({sz}*)({dst} {off}) = {src};')
 
-    def BPF_ATOMIC_OP___nofetch(m):
+    def BPF_ATOMIC_OP(m):
         sz = m.size()
-        op = m.atomic_op()
+        op, fetch = m.atomic_op()
         dst = m.reg()
-        src = m.reg()
+        match sz:
+            case 'u64':
+                src = m.reg()
+            case 'u32':
+                src = m.reg32()
+            case _:
+                raise MatchError(f'Unexpected size for atomic op: {sz}')
         off = m.off()
-        return d('lock *(u64 *)({dst} {off}) {op} {src}')
+        if fetch:
+            return d('{src} = atomic_fetch_{op}(({sz} *)({dst} {off}), {src})')
+        else:
+            return d('lock *({sz} *)({dst} {off}) {op} {src}')
+
+    def BPF_ATOMIC_OP___xchg(m):
+        sz = m.size()
+        m._ident('BPF_XCHG')
+        match sz:
+            case 'u64':
+                op = 'xchg_64'
+                dst = m.reg()
+                src = m.reg()
+            case 'u32':
+                op = 'xchg32_32'
+                dst = m.reg32()
+                src = m.reg32()
+            case _:
+                raise MatchError(f'Unexpected size for atomic op: {sz}')
+        off = m.off()
+        return d('{src} = {op}({dst} {off}, {src})')
+
+    def BPF_ATOMIC_OP___cmpxchg(m):
+        sz = m.size()
+        m._ident('BPF_CMPXCHG')
+        dst = m.reg()
+        match sz:
+            case 'u64':
+                op  = 'cmpxchg_64'
+                r0  = 'r0'
+                src = m.reg()
+            case 'u32':
+                op  = 'cmpxchg32_32'
+                r0  = 'w0'
+                src = m.reg32()
+            case _:
+                raise MatchError(f'Unexpected size for atomic op: {sz}')
+        off = m.off()
+        return d('{r0} = {op}({dst} {off}, {r0}, {src})')
 
     def BPF_LD_MAP_FD(m):
         dst = m.reg()

@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import logging
 import unittest
 from rewrite import convert_string, Options
 
@@ -7,7 +8,7 @@ class Tests(unittest.TestCase):
     def _aux(self, input, expected_output):
         output = convert_string(input, Options())
         self.maxDiff = None
-        self.assertMultiLineEqual(expected_output, output,)
+        self.assertMultiLineEqual(expected_output.lstrip(), output,)
 
     def test_simple(self):
         self._aux('''
@@ -181,5 +182,68 @@ void dsize2(void)
 }
 '''.lstrip())
 
+    def test_atomic(self):
+        self._aux('''
+{
+	"atomic",
+	.insns = {
+	BPF_ATOMIC_OP(BPF_DW, BPF_ADD | BPF_FETCH, BPF_REG_10, BPF_REG_1, -8),
+	BPF_ATOMIC_OP(BPF_DW, BPF_AND | BPF_FETCH, BPF_REG_10, BPF_REG_2, -8),
+	//
+	BPF_ATOMIC_OP(BPF_W, BPF_FETCH | BPF_OR , BPF_REG_10, BPF_REG_3, -8),
+	BPF_ATOMIC_OP(BPF_W, BPF_FETCH | BPF_XOR, BPF_REG_10, BPF_REG_4, -8),
+	//
+	BPF_ATOMIC_OP(BPF_W, BPF_ADD, BPF_REG_10, BPF_REG_1, -16),
+	BPF_ATOMIC_OP(BPF_W, BPF_AND, BPF_REG_10, BPF_REG_2, -16),
+	//
+	BPF_ATOMIC_OP(BPF_DW, BPF_OR , BPF_REG_10, BPF_REG_3, -16),
+	BPF_ATOMIC_OP(BPF_DW, BPF_XOR, BPF_REG_10, BPF_REG_4, -16),
+	//
+	BPF_ATOMIC_OP(BPF_DW, BPF_XCHG, BPF_REG_10, BPF_REG_1, -8),
+	BPF_ATOMIC_OP(BPF_W, BPF_XCHG, BPF_REG_10, BPF_REG_1, -4),
+	//
+	BPF_ATOMIC_OP(BPF_DW, BPF_CMPXCHG, BPF_REG_10, BPF_REG_1, -8),
+	BPF_ATOMIC_OP(BPF_W, BPF_CMPXCHG, BPF_REG_10, BPF_REG_1, -4),
+	},
+	.result = ACCEPT,
+},
+''',
+                  '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+/* atomic */
+SEC("socket")
+__naked __priv_and_unpriv
+void atomic(void)
+{
+	asm volatile (
+	"r1 = atomic_fetch_add((u64 *)(r10 -8), r1)"
+	"r2 = atomic_fetch_and((u64 *)(r10 -8), r2)"
+	//
+	"w3 = atomic_fetch_or((u32 *)(r10 -8), w3)"
+	"w4 = atomic_fetch_xor((u32 *)(r10 -8), w4)"
+	//
+	"lock *(u32 *)(r10 -16) += w1"
+	"lock *(u32 *)(r10 -16) &= w2"
+	//
+	"lock *(u64 *)(r10 -16) |= r3"
+	"lock *(u64 *)(r10 -16) ^= r4"
+	//
+	"r1 = xchg_64(r10 -8, r1)"
+	"w1 = xchg32_32(w10 -4, w1)"
+	//
+	"r0 = cmpxchg_64(r10 -8, r0, r1)"
+	"w0 = cmpxchg32_32(r10 -4, w0, w1)"
+	:
+	:
+	: __clobber_all);
+}
+''')
+
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG, force=True)
     unittest.main()
