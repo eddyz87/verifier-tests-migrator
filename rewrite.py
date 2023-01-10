@@ -41,6 +41,12 @@ def pptree(tree):
 ##### Instructions matching #####
 #################################
 
+def text_to_int(text):
+    if text.startswith('0x'):
+        return int(text, 16)
+    else:
+        return int(text)
+
 @dataclass
 class Imm:
     text: str
@@ -103,17 +109,25 @@ class CallMatcher:
         return f'w{self._regno()}'
 
     def size(self):
-        ident = self._ident()
-        if ident == 'BPF_DW':
-            return 'u64'
-        elif ident == 'BPF_W':
-            return 'u32'
-        elif ident == 'BPF_H':
-            return 'u16'
-        elif ident == 'BPF_B':
-            return 'u8'
-        else:
-            raise MatchError()
+        arg = self._next_arg()
+
+        def _size_ident():
+            match arg.mtype('identifier').text:
+                case 'BPF_DW': return 'u64'
+                case 'BPF_W' : return 'u32'
+                case 'BPF_H' : return 'u16'
+                case 'BPF_B' : return 'u8'
+                case _: raise MatchError()
+
+        def _size_number():
+            match text_to_int(arg.mtype('number_literal').text):
+                case 0x18: return 'u64'
+                case 0x00: return 'u32'
+                case 0x08: return 'u16'
+                case 0x10: return 'u8'
+                case _: raise MatchError()
+
+        return match_any(_size_ident, _size_number)
 
     def _intern_expr(self, node):
         if node.type == 'number_literal':
@@ -131,11 +145,7 @@ class CallMatcher:
         return text
 
     def number(self):
-        text = self._next_arg().mtype('number_literal').text
-        if text.startswith('0x'):
-            return int(text, 16)
-        else:
-            return int(text)
+        return text_to_int(self._next_arg().mtype('number_literal').text)
 
     def bpf_func_ident(self):
         raw_func = self._ident()
