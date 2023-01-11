@@ -90,8 +90,8 @@ void invalid_and_of_negative_number_body(void)
 }
 
 SEC("socket")
-__failure __needs_efficient_unaligned_access
-__msg("R0 max value is outside of the allowed memory range")
+__failure __msg("R0 max value is outside of the allowed memory range")
+__needs_efficient_unaligned_access
 void invalid_and_of_negative_number(void)
 {
 	invalid_and_of_negative_number_body();
@@ -247,6 +247,105 @@ void atomic(void)
 	:
 	:
 	: __clobber_all);
+}
+''')
+
+    def test_comments(self):
+        self._aux('''
+{
+	/* 1a */ /* 2a */
+	/* 3a */
+	"atomic",
+	/* 1b */ /* 2b */
+	/* 3b */
+	.insns = {
+	/* 1c */ /* 2c */
+	/* 3c */
+	BPF_ATOMIC_OP(BPF_DW, BPF_ADD | BPF_FETCH, BPF_REG_10, BPF_REG_1, -8),
+	/* 1d */ /* 2d */
+	/* 3d */
+	},
+	/* 1e */ /* 2e */
+	/* 3e */
+	.result = REJECT,
+	/* 1f */ /* 2f */
+	/* 3f */
+	.result_unpriv = REJECT,
+	/* 1g */ /* 2g */
+	/* 3g */
+	.errstr = 'foo',
+	/* 1h */ /* 2h */
+	/* 3h */
+	.errstr_unpriv = 'bar',
+	/* 1i */ /* 2i */
+	/* 3i */
+	.retval = 1,
+	/* 1j */ /* 2j */
+	/* 3j */
+	.flags = F_NEEDS_EFFICIENT_UNALIGNED_ACCESS,
+},
+''',
+                  '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+/* 1a */ /* 2a */
+/* 3a */
+/* atomic */
+__naked __always_inline
+void atomic_body(void)
+{
+	/* 1b */ /* 2b */
+	/* 3b */
+	asm volatile (
+	/* 1c */ /* 2c */
+	/* 3c */
+	"r1 = atomic_fetch_add((u64 *)(r10 -8), r1)"
+	/* 1d */ /* 2d */
+	/* 3d */
+	:
+	:
+	: __clobber_all);
+}
+
+SEC("socket")
+/* 1e */ /* 2e */
+/* 3e */
+__failure
+/* 1g */ /* 2g */
+/* 3g */
+__msg('foo')
+/* 1i */ /* 2i */
+/* 3i */
+__retval(1)
+/* 1j */ /* 2j */
+/* 3j */
+__needs_efficient_unaligned_access
+void atomic(void)
+{
+	atomic_body();
+}
+
+SEC("socket")
+__unpriv
+/* 1f */ /* 2f */
+/* 3f */
+__failure
+/* 1h */ /* 2h */
+/* 3h */
+__msg('bar')
+/* 1i */ /* 2i */
+/* 3i */
+__retval(1)
+/* 1j */ /* 2j */
+/* 3j */
+__needs_efficient_unaligned_access
+void atomic_unpriv(void)
+{
+	atomic_body();
 }
 ''')
 

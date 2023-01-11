@@ -547,9 +547,12 @@ class Verdict(Enum):
     REJECT = 2
     VERBOSE_ACCEPT = 3
 
+class CommentsDict(dict):
+    def __missing__(self, key):
+        return None
+
 class TestInfo:
     def __init__(self):
-        self.comment = None
         self.name = None
         self.insns = []
         self.map_fixups = {}
@@ -561,6 +564,7 @@ class TestInfo:
         self.flags = []
         self.sec = "socket" # default section
         self.imms = {}
+        self.comments = CommentsDict()
 
 def parse_test_result(node, field_name):
     match node.text:
@@ -574,43 +578,68 @@ def parse_test_result(node, field_name):
             logging.warning(f"Unsupported '{field_name}' value '{value.text}'")
             return None
 
+def merge_comment_nodes(nodes):
+    last_line = None
+    with io.StringIO() as out:
+        for n in nodes:
+            if last_line and last_line != n.start_point[0]:
+                out.write('\n')
+            else:
+                out.write(' ')
+            out.write(n.text)
+            last_line = n.end_point[0]
+        return out.getvalue()
+
 def match_test_info(node):
     node.mtype('initializer_list')
     elems = iter(node.named_children)
     info = TestInfo()
-    name_or_comment = mnext(elems)
-    if name_or_comment.type == 'comment':
-        info.comment = name_or_comment.text
-        info.name = mnext(elems).mtype('string_literal').text
-    else:
-        info.name = name_or_comment.mtype('string_literal').text
+    pending_comments = []
+
+    while True:
+        node = mnext(elems)
+        match node.type:
+            case 'comment':
+                pending_comments.append(node)
+            case 'string_literal':
+                info.name = node.text
+                info.comments['name'] = merge_comment_nodes(pending_comments)
+                pending_comments = []
+                break
+            case _:
+                raise MatchError(f'Expecting comment or string literal at {node}')
     while True:
         pair = next(elems, None)
         if pair is None:
             break
+        if pair.type == 'comment':
+            pending_comments.append(pair)
+            continue
         pair.mtype('initializer_pair')
         field = pair['designator'][0].mtype('field_identifier').text
         value = pair['value']
+        info.comments[field] = merge_comment_nodes(pending_comments)
+        pending_comments = []
         # print(f'  field={field} value={value}')
         match field:
             case 'insns':
-                comments = []
+                insn_comments = []
                 for insn in value.mtype('initializer_list').named_children:
                     if insn.type == 'comment':
-                        comments.append(insn.text)
+                        insn_comments.append(insn)
                     else:
                         insn = convert_insn(insn)
-                        insn.comments = comments
+                        insn.comment = merge_comment_nodes(insn_comments)
                         info.insns.append(insn)
                         if getattr(insn, 'double_size', False):
                             dummy = DString('__dummy__', {})
                             dummy.dummy = True
                             info.insns.append(dummy)
-                        comments = []
+                        insn_comments = []
                 if len(info.insns) > 0:
-                    info.insns[-1].after_comments = comments
-                else:
-                    logging.warning(f'Dropping trailing comments {comments} at {value}')
+                    info.insns[-1].after_comment = merge_comment_nodes(insn_comments)
+                elif len(insn_comments) > 0:
+                    logging.warning(f'Dropping trailing comments {insn_comments} at {value}')
             case 'errstr':
                 info.errstr = value.text
             case 'errstr_unpriv':
@@ -630,6 +659,8 @@ def match_test_info(node):
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
+    if pending_comments:
+        logging.warning(f'Dropping pending comments {pending_comments}')
     return info
 
 #################################
@@ -723,19 +754,14 @@ def enquote(text):
     escaped = text.replace('"', '\"')
     return f'"{escaped}"'
 
-def format_comments(out, comments):
-    # TODO: extend this with smarter newline handling one day
-    for c in comments:
-        out.write('\t')
-        out.write(c)
-        out.write('\n')
-
 def format_insns(insns, newlines):
     with io.StringIO() as out:
         for i, insn in enumerate(insns):
             if getattr(insn, 'dummy', False):
                 continue
-            format_comments(out, getattr(insn, 'comments', []))
+            if c := getattr(insn, 'comment', None):
+                out.write('\t')
+                out.write(reindent_comment(c, 1, False))
             text = str(insn)
             if not text.endswith(':'):
                 out.write('\t')
@@ -744,7 +770,9 @@ def format_insns(insns, newlines):
             else:
                 out.write(enquote(text))
             out.write("\n")
-            format_comments(out, getattr(insn, 'after_comments', []))
+            if c := getattr(insn, 'after_comment', None):
+                out.write('\t')
+                out.write(reindent_comment(c, 1, False))
         return out.getvalue()
 
 def cname_from_string(string):
@@ -754,81 +782,116 @@ def collect_attrs(info, unpriv):
     attrs = []
     result = info.result
     errstr = info.errstr
+    result_comment = info.comments['result']
+    errstr_comment = info.comments['errstr']
     if unpriv:
         if info.result_unpriv:
             result = info.result_unpriv
+            result_comment = info.comments['result_unpriv']
         if info.errstr_unpriv:
             errstr = info.errstr_unpriv
+            errstr_comment = info.comments['errstr_unpriv']
+    if result_comment:
+        attrs.append(Comment(result_comment))
     match result:
         case Verdict.VERBOSE_ACCEPT:
             attrs.append('__log_level(2)')
         case Verdict.REJECT:
             attrs.append('__failure')
+    if errstr_comment:
+        attrs.append(Comment(errstr_comment))
     if errstr:
         attrs.append(f'__msg({errstr})')
+    if c := info.comments['retval']:
+        attrs.append(Comment(c))
     if info.retval:
         attrs.append(f'__retval({info.retval})')
+    if c := info.comments['flags']:
+        attrs.append(Comment(c))
     attrs.extend(info.flags)
     return attrs
 
+
+class StringIOWrapper(io.StringIO):
+    def __init__(self):
+        super().__init__()
+        self.last_is_newline = True
+
+    def write(self, what):
+        super().write(what)
+        self.last_is_newline = what[-1] == "\n"
+
+    def ensure_newline(self):
+        if not self.last_is_newline:
+            self.write("\n")
+
 def render_attrs(attrs):
-    attrs = sorted(attrs, key=len)
-    with io.StringIO() as out:
+    with StringIOWrapper() as out:
         line_len = 0
         for attr in attrs:
-            if line_len + len(attr) > 80 and line_len != 0:
-                out.write("\n")
-                line_len = 0
-            if line_len > 0:
-                out.write(' ')
-                line_len += 1
-            out.write(attr)
-            line_len += len(attr)
-        if out.tell() != 0:
-            out.write("\n")
+            match attr:
+                case Comment(text):
+                    out.ensure_newline()
+                    out.write(reindent_comment(text, 0))
+                    out.ensure_newline()
+                    line_len = 0
+                case str(text):
+                    if line_len + len(text) > 80:
+                        out.ensure_newline()
+                        line_len = 0
+                    elif line_len != 0:
+                        out.write(' ')
+                        line_len += 1
+                    out.write(text)
+                    line_len += len(text)
+        out.ensure_newline()
         return out.getvalue()
 
-def reindent_comment(text, level):
+def reindent_comment(text, level, indent_at_end=True):
     if not text:
         return ''
     text = text.strip()
-    indent = "\n" + "\t" * level
-    return re.sub(r"\n\t+", indent, text) + "\n"
+    indent = "\t" * level
+    result = re.sub(r"\n\t*", "\n" + indent, text) + "\n"
+    if indent_at_end:
+        result += indent
+    return result
 
 def render_test_info(info, options):
     priv_attrs = collect_attrs(info, False)
     unpriv_attrs = collect_attrs(info, True)
 
-    comment = reindent_comment(info.comment, 0)
-    name_comment = info.name.strip('"')
-    func_name = cname_from_string(name_comment)
+    name_comment = reindent_comment(info.comments['name'], 0)
+    name = info.name.strip('"')
+    func_name = cname_from_string(name)
+    insns_comments = reindent_comment(info.comments['insns'], 1)
     insn_text = format_insns(info.insns, options.newlines)
     imms_text = format_imms(info.imms)
     if imms_text:
         imms_text = ' ' + imms_text
 
     if priv_attrs == unpriv_attrs:
-        priv_attrs.append('__naked')
-        priv_attrs.append('__priv_and_unpriv')
+        priv_attrs.insert(0, '__naked')
+        priv_attrs.insert(1, '__priv_and_unpriv')
         return f'''
-{comment}/* {name_comment} */
+{name_comment}/* {name} */
 SEC("{info.sec}")
 {render_attrs(priv_attrs)}void {func_name}(void)
 {{
-	asm volatile (
+	{insns_comments}asm volatile (
 {insn_text}	:
 	:{imms_text}
 	: __clobber_all);
 }}
 '''
     else:
-        unpriv_attrs.append('__unpriv')
+        unpriv_attrs.insert(0, '__unpriv')
         return f'''
-{comment}/* {name_comment} */
+{name_comment}/* {name} */
 __naked __always_inline
 void {func_name}_body(void)
 {{
-	asm volatile (
+	{insns_comments}asm volatile (
 {insn_text}	:
 	:{imms_text}
 	: __clobber_all);
@@ -973,7 +1036,7 @@ class Options:
     newlines: bool = False
 
 @dataclass
-class TopComment:
+class Comment:
     text: str
 
 @dataclass
@@ -995,7 +1058,7 @@ def convert_translation_unit(root_node, options):
     entries = []
     for test_node in map(NodeWrapper, captures[0][0].named_children):
         if test_node.type == 'comment':
-            entries.append(TopComment(test_node.text))
+            entries.append(Comment(test_node.text))
         else:
             try:
                 entries.append(TestCase(match_test_info(test_node)))
@@ -1018,7 +1081,7 @@ Can't convert test case:
                 case TestCase(info):
                     patch_test_info(info)
                     out.write(render_test_info(info, options))
-                case TopComment(text):
+                case Comment(text):
                     out.write(text)
                     out.write("\n")
         return out.getvalue()
