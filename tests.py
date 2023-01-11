@@ -67,19 +67,19 @@ __naked __always_inline
 void invalid_and_of_negative_number_body(void)
 {
 	asm volatile (
-	"*(u64*)(r10 -8) = 0;"
+	"*(u64*)(r10 - 8) = 0;"
 	"r2 = r10;"
 	"r2 += %[__imm_0];"
 	"r1 = %[map_hash_48b] ll;"
 	"call %[bpf_map_lookup_elem];"
 	"if r0 == 0 goto l0_%=;"
-	"r1 = *(u8*)(r0 +0);"
+	"r1 = *(u8*)(r0 + 0);"
 	"r1 &= -4;"
 	"r1 <<= 2;"
 	"r0 += r1;"
 "l0_%=:"
 	// comment
-	"*(u64*)(r0 +0) = %[test_val_foo_offset];"
+	"*(u64*)(r0 + 0) = %[test_val_foo_offset];"
 	"exit;"
 	:
 	: [__imm_0]"i"(-8 + 2),
@@ -227,23 +227,23 @@ __naked __priv_and_unpriv
 void atomic(void)
 {
 	asm volatile (
-	"r1 = atomic_fetch_add((u64 *)(r10 -8), r1)"
-	"r2 = atomic_fetch_and((u64 *)(r10 -8), r2)"
+	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1)"
+	"r2 = atomic_fetch_and((u64 *)(r10 - 8), r2)"
 	//
-	"w3 = atomic_fetch_or((u32 *)(r10 -8), w3)"
-	"w4 = atomic_fetch_xor((u32 *)(r10 -8), w4)"
+	"w3 = atomic_fetch_or((u32 *)(r10 - 8), w3)"
+	"w4 = atomic_fetch_xor((u32 *)(r10 - 8), w4)"
 	//
-	"lock *(u32 *)(r10 -16) += w1"
-	"lock *(u32 *)(r10 -16) &= w2"
+	"lock *(u32 *)(r10 - 16) += w1"
+	"lock *(u32 *)(r10 - 16) &= w2"
 	//
-	"lock *(u64 *)(r10 -16) |= r3"
-	"lock *(u64 *)(r10 -16) ^= r4"
+	"lock *(u64 *)(r10 - 16) |= r3"
+	"lock *(u64 *)(r10 - 16) ^= r4"
 	//
-	"r1 = xchg_64(r10 -8, r1)"
-	"w1 = xchg32_32(w10 -4, w1)"
+	"r1 = xchg_64(r10 - 8, r1)"
+	"w1 = xchg32_32(w10 - 4, w1)"
 	//
-	"r0 = cmpxchg_64(r10 -8, r0, r1)"
-	"w0 = cmpxchg32_32(r10 -4, w0, w1)"
+	"r0 = cmpxchg_64(r10 - 8, r0, r1)"
+	"w0 = cmpxchg32_32(r10 - 4, w0, w1)"
 	:
 	:
 	: __clobber_all);
@@ -303,7 +303,7 @@ void atomic_body(void)
 	asm volatile (
 	/* 1c */ /* 2c */
 	/* 3c */
-	"r1 = atomic_fetch_add((u64 *)(r10 -8), r1)"
+	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1)"
 	/* 1d */ /* 2d */
 	/* 3d */
 	:
@@ -346,6 +346,53 @@ __needs_efficient_unaligned_access
 void atomic_unpriv(void)
 {
 	atomic_body();
+}
+''')
+
+    def test_off(self):
+        self._aux('''
+{
+	"imm",
+	.insns = {
+	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, offsetof(struct foo, bar)),
+	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, -offsetof(struct foo, bar)),
+	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, 42),
+	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, -7),
+	BPF_ST_MEM(BPF_DW, BPF_REG_0, -foo, -8),
+	BPF_STX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, -foo),
+	BPF_ATOMIC_OP(BPF_DW, BPF_OR , BPF_REG_10, BPF_REG_3, -foo),
+	BPF_ATOMIC_OP(BPF_DW, BPF_XCHG, BPF_REG_10, BPF_REG_1, -foo),
+	BPF_ATOMIC_OP(BPF_DW, BPF_CMPXCHG, BPF_REG_10, BPF_REG_1, -foo),
+	},
+	.result = ACCEPT,
+},
+''',
+                  '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+/* imm */
+SEC("socket")
+__naked __priv_and_unpriv
+void imm(void)
+{
+	asm volatile (
+	"r0 = *(u64*)(r1 + %[foo_bar_offset]);"
+	"r0 = *(u64*)(r1 - %[foo_bar_offset]);"
+	"r0 = *(u64*)(r1 + 42);"
+	"r0 = *(u64*)(r1 - 7);"
+	"*(u64*)(r0 - %[foo]) = -8;"
+	"*(u64*)(r0 - %[foo]) = r1;"
+	"lock *(u64 *)(r10 - %[foo]) |= r3"
+	"r1 = xchg_64(r10 - %[foo], r1)"
+	"r0 = cmpxchg_64(r10 - %[foo], r0, r1)"
+	:
+	: [foo_bar_offset]"i"(offsetof(struct foo, bar)),
+	  __imm(foo)
+	: __clobber_all);
 }
 ''')
 

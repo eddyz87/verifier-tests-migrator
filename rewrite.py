@@ -42,7 +42,7 @@ def pptree(tree):
 #################################
 
 def text_to_int(text):
-    if text.startswith('0x'):
+    if text.startswith('0x') or text.startswith('-0x'):
         return int(text, 16)
     else:
         return int(text)
@@ -139,10 +139,17 @@ class CallMatcher:
 
     def off(self):
         arg = self._next_arg()
-        text = self._intern_expr(arg)
-        if arg.type == 'number_literal' and not re.match(r'^[+-]', text):
-            return f'+{text}'
-        return text
+        match arg.type:
+            case 'number_literal':
+                text = arg.text
+                if re.match(r'^[+-]', text):
+                    return text[0], text[1:]
+                else:
+                    return '+', text
+            case 'unary_expression' if arg['operator'].text in ['-', '+']:
+                return arg['operator'].text, Imm(arg['argument'].text)
+            case _:
+                return '+', Imm(arg.text)
 
     def number(self):
         return text_to_int(self._next_arg().mtype('number_literal').text)
@@ -300,22 +307,22 @@ class InsnMatchers:
         sz = m.size()
         dst = m.reg()
         src = m.reg()
-        off = m.off()
-        return d('{dst} = *({sz}*)({src} {off});')
+        sign, off = m.off()
+        return d('{dst} = *({sz}*)({src} {sign} {off});')
 
     def BPF_ST_MEM(m):
         sz = m.size()
         dst = m.reg()
-        off = m.off()
+        sign, off = m.off()
         imm = m.expr()
-        return d('*({sz}*)({dst} {off}) = {imm};')
+        return d('*({sz}*)({dst} {sign} {off}) = {imm};')
 
     def BPF_STX_MEM(m):
         sz = m.size()
         dst = m.reg()
         src = m.reg()
-        off = m.off()
-        return d('*({sz}*)({dst} {off}) = {src};')
+        sign, off = m.off()
+        return d('*({sz}*)({dst} {sign} {off}) = {src};')
 
     def BPF_ATOMIC_OP(m):
         sz = m.size()
@@ -328,11 +335,11 @@ class InsnMatchers:
                 src = m.reg32()
             case _:
                 raise MatchError(f'Unexpected size for atomic op: {sz}')
-        off = m.off()
+        sign, off = m.off()
         if fetch:
-            return d('{src} = atomic_fetch_{op}(({sz} *)({dst} {off}), {src})')
+            return d('{src} = atomic_fetch_{op}(({sz} *)({dst} {sign} {off}), {src})')
         else:
-            return d('lock *({sz} *)({dst} {off}) {op} {src}')
+            return d('lock *({sz} *)({dst} {sign} {off}) {op} {src}')
 
     def BPF_ATOMIC_OP___xchg(m):
         sz = m.size()
@@ -348,8 +355,8 @@ class InsnMatchers:
                 src = m.reg32()
             case _:
                 raise MatchError(f'Unexpected size for atomic op: {sz}')
-        off = m.off()
-        return d('{src} = {op}({dst} {off}, {src})')
+        sign, off = m.off()
+        return d('{src} = {op}({dst} {sign} {off}, {src})')
 
     def BPF_ATOMIC_OP___cmpxchg(m):
         sz = m.size()
@@ -366,8 +373,8 @@ class InsnMatchers:
                 src = m.reg32()
             case _:
                 raise MatchError(f'Unexpected size for atomic op: {sz}')
-        off = m.off()
-        return d('{r0} = {op}({dst} {off}, {r0}, {src})')
+        sign, off = m.off()
+        return d('{r0} = {op}({dst} {sign} {off}, {r0}, {src})')
 
     def BPF_LD_MAP_FD(m):
         dst = m.reg()
