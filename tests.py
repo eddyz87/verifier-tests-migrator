@@ -91,14 +91,15 @@ void invalid_and_of_negative_number_body(void)
 
 SEC("socket")
 __failure __msg("R0 max value is outside of the allowed memory range")
-__needs_efficient_unaligned_access
+__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
 void invalid_and_of_negative_number(void)
 {
 	invalid_and_of_negative_number_body();
 }
 
 SEC("socket")
-__unpriv __failure __msg("abra-cadabra") __needs_efficient_unaligned_access
+__unpriv __failure __msg("abra-cadabra")
+__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
 void invalid_and_of_negative_number_unpriv(void)
 {
 	invalid_and_of_negative_number_body();
@@ -136,7 +137,7 @@ struct {
 
 /* dsize */
 SEC("socket")
-__naked __priv_and_unpriv
+__naked __priv_and_unpriv __success
 void dsize(void)
 {
 	asm volatile (
@@ -173,7 +174,7 @@ void dsize(void)
 
 /* dsize2 */
 SEC("socket")
-__naked __priv_and_unpriv
+__naked __priv_and_unpriv __success
 void dsize2(void)
 {
 	asm volatile (
@@ -223,7 +224,7 @@ void dsize2(void)
 
 /* atomic */
 SEC("socket")
-__naked __priv_and_unpriv
+__naked __priv_and_unpriv __success
 void atomic(void)
 {
 	asm volatile (
@@ -323,7 +324,7 @@ __msg('foo')
 __retval(1)
 /* 1j */ /* 2j */
 /* 3j */
-__needs_efficient_unaligned_access
+__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
 void atomic(void)
 {
 	atomic_body();
@@ -342,7 +343,7 @@ __msg('bar')
 __retval(1)
 /* 1j */ /* 2j */
 /* 3j */
-__needs_efficient_unaligned_access
+__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
 void atomic_unpriv(void)
 {
 	atomic_body();
@@ -376,7 +377,7 @@ void atomic_unpriv(void)
 
 /* imm */
 SEC("socket")
-__naked __priv_and_unpriv
+__naked __priv_and_unpriv __success
 void imm(void)
 {
 	asm volatile (

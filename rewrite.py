@@ -504,18 +504,6 @@ def convert_int_list(node):
         ints.append(int(item.mtype('number_literal').text))
     return ints
 
-FLAGS = {
-    'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS': '__needs_efficient_unaligned_access',
-    'BPF_F_TEST_STATE_FREQ': '__f_test_state_freq'
-}
-
-def convert_flags(node):
-    node.mtype('identifier')
-    flag = node.text
-    if flag not in FLAGS:
-        raise MatchError(f'Unsupported flag {flag}')
-    return [FLAGS[flag]]
-
 SEC_BY_PROG_TYPE = {
     'BPF_PROG_TYPE_CGROUP_SKB'             : 'cgroup/skb',
     'BPF_PROG_TYPE_CGROUP_SOCK'            : 'cgroup/sock',
@@ -658,7 +646,7 @@ def match_test_info(node):
             case map_fixup if (map_name := map_fixup.removeprefix('fixup_')) in MAP_NAMES:
                 info.map_fixups[map_name] = convert_int_list(value)
             case 'flags':
-                info.flags.extend(convert_flags(value))
+                info.flags.append(value.mtype('identifier').text)
             case 'prog_type':
                 info.sec = convert_prog_type(value)
             case 'retval':
@@ -801,7 +789,10 @@ def collect_attrs(info, unpriv):
     if result_comment:
         attrs.append(Comment(result_comment))
     match result:
+        case Verdict.ACCEPT:
+            attrs.append('__success')
         case Verdict.VERBOSE_ACCEPT:
+            attrs.append('__success')
             attrs.append('__log_level(2)')
         case Verdict.REJECT:
             attrs.append('__failure')
@@ -815,7 +806,8 @@ def collect_attrs(info, unpriv):
         attrs.append(f'__retval({info.retval})')
     if c := info.comments['flags']:
         attrs.append(Comment(c))
-    attrs.extend(info.flags)
+    for flag in info.flags:
+        attrs.append(f'__flag({flag})')
     return attrs
 
 
