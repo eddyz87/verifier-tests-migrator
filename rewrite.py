@@ -164,7 +164,7 @@ class CallMatcher:
     _ATOMIC_OPS = {
         'BPF_ADD': '+=',
         'BPF_AND': '&=',
-        'BPF_OR' : '|=',
+        'BPF_OR' : '%|=',
         'BPF_XOR': '^='
         }
 
@@ -181,8 +181,8 @@ class CallMatcher:
         'BPF_SUB': '-= ',
         'BPF_MUL': '*= ',
         'BPF_DIV': '/= ',
-        'BPF_MOD': '%= ',
-        'BPF_OR' : '|= ',
+        'BPF_MOD': '%%= ',
+        'BPF_OR' : '%|= ',
         'BPF_AND': '&= ',
         'BPF_LSH': '<<= ',
         'BPF_RSH': '>>= ',

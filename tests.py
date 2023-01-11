@@ -23,10 +23,12 @@ class Tests(unittest.TestCase):
 	BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, -8 + 2),
 	BPF_LD_MAP_FD(BPF_REG_1, 0),
 	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem),
-	BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 4),
+	BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 6),
 	BPF_LDX_MEM(BPF_B, BPF_REG_1, BPF_REG_0, 0),
 	BPF_ALU64_IMM(BPF_AND, BPF_REG_1, -4),
 	BPF_ALU64_IMM(BPF_LSH, BPF_REG_1, 2),
+	BPF_ALU64_IMM(BPF_MOD, BPF_REG_1, 2),
+	BPF_ALU64_IMM(BPF_OR, BPF_REG_1, 2),
 	BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_1),
 	// comment
 	BPF_ST_MEM(BPF_DW, BPF_REG_0, 0, offsetof(struct test_val, foo)),
@@ -76,6 +78,8 @@ void invalid_and_of_negative_number_body(void)
 	"r1 = *(u8*)(r0 + 0);"
 	"r1 &= -4;"
 	"r1 <<= 2;"
+	"r1 %%= 2;"
+	"r1 %|= 2;"
 	"r0 += r1;"
 "l0_%=:"
 	// comment
@@ -237,7 +241,7 @@ void atomic(void)
 	"lock *(u32 *)(r10 - 16) += w1"
 	"lock *(u32 *)(r10 - 16) &= w2"
 	//
-	"lock *(u64 *)(r10 - 16) |= r3"
+	"lock *(u64 *)(r10 - 16) %|= r3"
 	"lock *(u64 *)(r10 - 16) ^= r4"
 	//
 	"r1 = xchg_64(r10 - 8, r1)"
@@ -387,7 +391,7 @@ void imm(void)
 	"r0 = *(u64*)(r1 - 7);"
 	"*(u64*)(r0 - %[foo]) = -8;"
 	"*(u64*)(r0 - %[foo]) = r1;"
-	"lock *(u64 *)(r10 - %[foo]) |= r3"
+	"lock *(u64 *)(r10 - %[foo]) %|= r3"
 	"r1 = xchg_64(r10 - %[foo], r1)"
 	"r0 = cmpxchg_64(r10 - %[foo], r0, r1)"
 	:
