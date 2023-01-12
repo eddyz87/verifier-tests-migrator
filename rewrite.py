@@ -773,41 +773,50 @@ def format_insns(insns, newlines):
 def cname_from_string(string):
     return re.sub(r'[^\d\w]', '_', string)
 
-def collect_attrs(info, unpriv):
+def collect_attrs(info):
+    def attrs_for_verdict(verdict, unpriv):
+        pfx = 'unpriv_' if unpriv else ''
+        match verdict:
+            case Verdict.ACCEPT:
+                return [f'__{pfx}success']
+            case Verdict.VERBOSE_ACCEPT:
+                return [f'__{pfx}success', f'__{pfx}log_level(2)']
+            case Verdict.REJECT:
+                return [f'__{pfx}failure']
+
     attrs = []
-    result = info.result
-    errstr = info.errstr
-    result_comment = info.comments['result']
-    errstr_comment = info.comments['errstr']
-    if unpriv:
-        if info.result_unpriv:
-            result = info.result_unpriv
-            result_comment = info.comments['result_unpriv']
-        if info.errstr_unpriv:
-            errstr = info.errstr_unpriv
-            errstr_comment = info.comments['errstr_unpriv']
-    if result_comment:
-        attrs.append(Comment(result_comment))
-    match result:
-        case Verdict.ACCEPT:
-            attrs.append('__success')
-        case Verdict.VERBOSE_ACCEPT:
-            attrs.append('__success')
-            attrs.append('__log_level(2)')
-        case Verdict.REJECT:
-            attrs.append('__failure')
-    if errstr_comment:
-        attrs.append(Comment(errstr_comment))
-    if errstr:
-        attrs.append(f'__msg({errstr})')
-    if c := info.comments['retval']:
-        attrs.append(Comment(c))
-    if info.retval:
-        attrs.append(f'__retval({info.retval})')
-    if c := info.comments['flags']:
-        attrs.append(Comment(c))
-    for flag in info.flags:
-        attrs.append(f'__flag({flag})')
+    def attr(field, fn):
+        if text := info.comments[field]:
+            attrs.append(Comment(text))
+        if val := getattr(info, field, None):
+            match fn(val):
+                case str(s):
+                    attrs.append(s)
+                case list(l):
+                    attrs.extend(l)
+
+    separate_priv_unpriv = info.result_unpriv or info.errstr_unpriv or info.errstr
+
+    attr('name'         , lambda name  : f'__description({name})')
+    attrs.append(Newline())
+    attr('result'       , lambda result: attrs_for_verdict(result, False))
+    attr('errstr'       , lambda errstr: f'__msg({errstr})')
+    if separate_priv_unpriv:
+        attrs.append(Newline())
+    attr('result_unpriv', lambda result: attrs_for_verdict(result, True))
+    attr('errstr_unpriv', lambda errstr: f'__unpriv_msg({errstr})')
+    if separate_priv_unpriv:
+        attrs.append(Newline())
+    if not info.result_unpriv and not info.errstr_unpriv:
+        match info.result:
+            case Verdict.ACCEPT | Verdict.VERBOSE_ACCEPT:
+                attrs.append('__unpriv_success')
+            case Verdict.REJECT:
+                attrs.append('__unpriv_failure')
+    attrs.append(Newline())
+    attr('retval'       , lambda retval: f'__retval({retval})')
+    attr('flags'        , lambda flags : list(map(lambda flag: f'__flag({flag})', flags)))
+
     return attrs
 
 
@@ -834,6 +843,9 @@ def render_attrs(attrs):
                     out.write(reindent_comment(text, 0))
                     out.ensure_newline()
                     line_len = 0
+                case Newline():
+                    out.ensure_newline()
+                    line_len = 0
                 case str(text):
                     if line_len + len(text) > 80:
                         out.ensure_newline()
@@ -843,8 +855,7 @@ def render_attrs(attrs):
                         line_len += 1
                     out.write(text)
                     line_len += len(text)
-        out.ensure_newline()
-        return out.getvalue()
+        return out.getvalue().strip()
 
 def reindent_comment(text, level, indent_at_end=True):
     if not text:
@@ -857,55 +868,23 @@ def reindent_comment(text, level, indent_at_end=True):
     return result
 
 def render_test_info(info, options):
-    priv_attrs = collect_attrs(info, False)
-    unpriv_attrs = collect_attrs(info, True)
-
-    name_comment = reindent_comment(info.comments['name'], 0)
-    name = info.name.strip('"')
-    func_name = cname_from_string(name)
+    attrs = collect_attrs(info)
+    func_name = cname_from_string(info.name.strip('"'))
     insns_comments = reindent_comment(info.comments['insns'], 1)
     insn_text = format_insns(info.insns, options.newlines)
     imms_text = format_imms(info.imms)
     if imms_text:
         imms_text = ' ' + imms_text
 
-    if priv_attrs == unpriv_attrs:
-        priv_attrs.insert(0, '__naked')
-        priv_attrs.insert(1, '__priv_and_unpriv')
-        return f'''
-{name_comment}/* {name} */
+    return f'''
+{render_attrs(attrs)}
 SEC("{info.sec}")
-{render_attrs(priv_attrs)}void {func_name}(void)
+__naked void {func_name}(void)
 {{
 	{insns_comments}asm volatile (
 {insn_text}	:
 	:{imms_text}
 	: __clobber_all);
-}}
-'''
-    else:
-        unpriv_attrs.insert(0, '__unpriv')
-        return f'''
-{name_comment}/* {name} */
-__naked __always_inline
-void {func_name}_body(void)
-{{
-	{insns_comments}asm volatile (
-{insn_text}	:
-	:{imms_text}
-	: __clobber_all);
-}}
-
-SEC("{info.sec}")
-{render_attrs(priv_attrs)}void {func_name}(void)
-{{
-	{func_name}_body();
-}}
-
-SEC("{info.sec}")
-{render_attrs(unpriv_attrs)}void {func_name}_unpriv(void)
-{{
-	{func_name}_body();
 }}
 '''
 
@@ -1037,6 +1016,10 @@ class Options:
 @dataclass
 class Comment:
     text: str
+
+@dataclass
+class Newline:
+    pass
 
 @dataclass
 class TestCase:

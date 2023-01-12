@@ -64,9 +64,12 @@ struct {
 /* some
  * comment
  */
-/* invalid and of negative number */
-__naked __always_inline
-void invalid_and_of_negative_number_body(void)
+__description("invalid and of negative number")
+__failure __msg("R0 max value is outside of the allowed memory range")
+__unpriv_msg("abra-cadabra")
+__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
+SEC("socket")
+__naked void invalid_and_of_negative_number(void)
 {
 	asm volatile (
 	"*(u64*)(r10 - 8) = 0;"
@@ -92,23 +95,7 @@ void invalid_and_of_negative_number_body(void)
 	  __imm_addr(map_hash_48b)
 	: __clobber_all);
 }
-
-SEC("socket")
-__failure __msg("R0 max value is outside of the allowed memory range")
-__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
-void invalid_and_of_negative_number(void)
-{
-	invalid_and_of_negative_number_body();
-}
-
-SEC("socket")
-__unpriv __failure __msg("abra-cadabra")
-__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
-void invalid_and_of_negative_number_unpriv(void)
-{
-	invalid_and_of_negative_number_body();
-}
-'''.lstrip())
+''')
 
     def test_double_size_insn(self):
         self._aux('''
@@ -139,10 +126,10 @@ struct {
 	__type(value, long long);
 } map_hash_8b SEC(".maps");
 
-/* dsize */
+__description("dsize")
+__success __unpriv_success
 SEC("socket")
-__naked __priv_and_unpriv __success
-void dsize(void)
+__naked void dsize(void)
 {
 	asm volatile (
 	"r1 = %[map_hash_8b] ll;"
@@ -155,7 +142,7 @@ void dsize(void)
 	: __imm_addr(map_hash_8b)
 	: __clobber_all);
 }
-'''.lstrip())
+''')
 
     def test_double_size_insn2(self):
         self._aux('''
@@ -176,10 +163,10 @@ void dsize(void)
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
-/* dsize2 */
+__description("dsize2")
+__success __unpriv_success
 SEC("socket")
-__naked __priv_and_unpriv __success
-void dsize2(void)
+__naked void dsize2(void)
 {
 	asm volatile (
 "l0_%=:"
@@ -226,10 +213,10 @@ void dsize2(void)
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
-/* atomic */
+__description("atomic")
+__success __unpriv_success
 SEC("socket")
-__naked __priv_and_unpriv __success
-void atomic(void)
+__naked void atomic(void)
 {
 	asm volatile (
 	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1)"
@@ -299,9 +286,27 @@ void atomic(void)
 
 /* 1a */ /* 2a */
 /* 3a */
-/* atomic */
-__naked __always_inline
-void atomic_body(void)
+__description("atomic")
+/* 1e */ /* 2e */
+/* 3e */
+__failure
+/* 1g */ /* 2g */
+/* 3g */
+__msg('foo')
+/* 1f */ /* 2f */
+/* 3f */
+__unpriv_failure
+/* 1h */ /* 2h */
+/* 3h */
+__unpriv_msg('bar')
+/* 1i */ /* 2i */
+/* 3i */
+__retval(1)
+/* 1j */ /* 2j */
+/* 3j */
+__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
+SEC("socket")
+__naked void atomic(void)
 {
 	/* 1b */ /* 2b */
 	/* 3b */
@@ -314,43 +319,6 @@ void atomic_body(void)
 	:
 	:
 	: __clobber_all);
-}
-
-SEC("socket")
-/* 1e */ /* 2e */
-/* 3e */
-__failure
-/* 1g */ /* 2g */
-/* 3g */
-__msg('foo')
-/* 1i */ /* 2i */
-/* 3i */
-__retval(1)
-/* 1j */ /* 2j */
-/* 3j */
-__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
-void atomic(void)
-{
-	atomic_body();
-}
-
-SEC("socket")
-__unpriv
-/* 1f */ /* 2f */
-/* 3f */
-__failure
-/* 1h */ /* 2h */
-/* 3h */
-__msg('bar')
-/* 1i */ /* 2i */
-/* 3i */
-__retval(1)
-/* 1j */ /* 2j */
-/* 3j */
-__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
-void atomic_unpriv(void)
-{
-	atomic_body();
 }
 ''')
 
@@ -369,7 +337,7 @@ void atomic_unpriv(void)
 	BPF_ATOMIC_OP(BPF_DW, BPF_XCHG, BPF_REG_10, BPF_REG_1, -foo),
 	BPF_ATOMIC_OP(BPF_DW, BPF_CMPXCHG, BPF_REG_10, BPF_REG_1, -foo),
 	},
-	.result = ACCEPT,
+	.result = REJECT,
 },
 ''',
                   '''
@@ -379,10 +347,10 @@ void atomic_unpriv(void)
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
-/* imm */
+__description("imm")
+__failure __unpriv_failure
 SEC("socket")
-__naked __priv_and_unpriv __success
-void imm(void)
+__naked void imm(void)
 {
 	asm volatile (
 	"r0 = *(u64*)(r1 + %[foo_bar_offset]);"
