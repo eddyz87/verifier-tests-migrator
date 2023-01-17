@@ -66,8 +66,8 @@ struct {
  */
 __description("invalid and of negative number")
 __failure __msg("R0 max value is outside of the allowed memory range")
-__unpriv_msg("abra-cadabra")
-__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
+__msg_unpriv("abra-cadabra")
+__flag(BPF_F_ANY_ALIGNMENT)
 SEC("socket")
 __naked void invalid_and_of_negative_number(void)
 {
@@ -82,7 +82,7 @@ __naked void invalid_and_of_negative_number(void)
 	"r1 &= -4;"
 	"r1 <<= 2;"
 	"r1 %%= 2;"
-	"r1 %|= 2;"
+	"r1 |= 2;"
 	"r0 += r1;"
 "l0_%=:"
 	// comment
@@ -127,7 +127,7 @@ struct {
 } map_hash_8b SEC(".maps");
 
 __description("dsize")
-__success __unpriv_success
+__success __success_unpriv
 SEC("socket")
 __naked void dsize(void)
 {
@@ -164,7 +164,7 @@ __naked void dsize(void)
 #include "bpf_misc.h"
 
 __description("dsize2")
-__success __unpriv_success
+__success __success_unpriv
 SEC("socket")
 __naked void dsize2(void)
 {
@@ -214,28 +214,28 @@ __naked void dsize2(void)
 #include "bpf_misc.h"
 
 __description("atomic")
-__success __unpriv_success
+__success __success_unpriv
 SEC("socket")
 __naked void atomic(void)
 {
 	asm volatile (
-	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1)"
-	"r2 = atomic_fetch_and((u64 *)(r10 - 8), r2)"
+	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);"
+	"r2 = atomic_fetch_and((u64 *)(r10 - 8), r2);"
 	//
-	"w3 = atomic_fetch_or((u32 *)(r10 - 8), w3)"
-	"w4 = atomic_fetch_xor((u32 *)(r10 - 8), w4)"
+	"w3 = atomic_fetch_or((u32 *)(r10 - 8), w3);"
+	"w4 = atomic_fetch_xor((u32 *)(r10 - 8), w4);"
 	//
-	"lock *(u32 *)(r10 - 16) += w1"
-	"lock *(u32 *)(r10 - 16) &= w2"
+	"lock *(u32 *)(r10 - 16) += w1;"
+	"lock *(u32 *)(r10 - 16) &= w2;"
 	//
-	"lock *(u64 *)(r10 - 16) %|= r3"
-	"lock *(u64 *)(r10 - 16) ^= r4"
+	"lock *(u64 *)(r10 - 16) |= r3;"
+	"lock *(u64 *)(r10 - 16) ^= r4;"
 	//
-	"r1 = xchg_64(r10 - 8, r1)"
-	"w1 = xchg32_32(w10 - 4, w1)"
+	"r1 = xchg_64(r10 - 8, r1);"
+	"w1 = xchg32_32(w10 - 4, w1);"
 	//
-	"r0 = cmpxchg_64(r10 - 8, r0, r1)"
-	"w0 = cmpxchg32_32(r10 - 4, w0, w1)"
+	"r0 = cmpxchg_64(r10 - 8, r0, r1);"
+	"w0 = cmpxchg32_32(r10 - 4, w0, w1);"
 	:
 	:
 	: __clobber_all);
@@ -295,16 +295,13 @@ __failure
 __msg('foo')
 /* 1f */ /* 2f */
 /* 3f */
-__unpriv_failure
+__failure_unpriv
 /* 1h */ /* 2h */
 /* 3h */
-__unpriv_msg('bar')
-/* 1i */ /* 2i */
-/* 3i */
-__retval(1)
+__msg_unpriv('bar')
 /* 1j */ /* 2j */
 /* 3j */
-__flag(F_NEEDS_EFFICIENT_UNALIGNED_ACCESS)
+__flag(BPF_F_ANY_ALIGNMENT)
 SEC("socket")
 __naked void atomic(void)
 {
@@ -313,7 +310,7 @@ __naked void atomic(void)
 	asm volatile (
 	/* 1c */ /* 2c */
 	/* 3c */
-	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1)"
+	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);"
 	/* 1d */ /* 2d */
 	/* 3d */
 	:
@@ -348,7 +345,7 @@ __naked void atomic(void)
 #include "bpf_misc.h"
 
 __description("imm")
-__failure __unpriv_failure
+__failure __failure_unpriv
 SEC("socket")
 __naked void imm(void)
 {
@@ -359,9 +356,9 @@ __naked void imm(void)
 	"r0 = *(u64*)(r1 - 7);"
 	"*(u64*)(r0 - %[foo]) = -8;"
 	"*(u64*)(r0 - %[foo]) = r1;"
-	"lock *(u64 *)(r10 - %[foo]) %|= r3"
-	"r1 = xchg_64(r10 - %[foo], r1)"
-	"r0 = cmpxchg_64(r10 - %[foo], r0, r1)"
+	"lock *(u64 *)(r10 - %[foo]) |= r3;"
+	"r1 = xchg_64(r10 - %[foo], r1);"
+	"r0 = cmpxchg_64(r10 - %[foo], r0, r1);"
 	:
 	: [foo_bar_offset]"i"(offsetof(struct foo, bar)),
 	  __imm(foo)

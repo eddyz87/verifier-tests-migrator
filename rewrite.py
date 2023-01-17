@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import os
 import io
 import re
 import logging
@@ -148,6 +149,15 @@ class CallMatcher:
                     return '+', text
             case 'unary_expression' if arg['operator'].text in ['-', '+']:
                 return arg['operator'].text, Imm(arg['argument'].text)
+            # SHRT_MIN is special, it is defined as -32768,
+            # numbers are substituted literally into the asm template,
+            # thus leading to the following sequence:
+            # asm ("r0 = *(u8*)(r1 + %[shrt_min]);", [shrt_min]"i"(SHRT_MIN))
+            # ->
+            # asm ("r0 = *(u8*)(r1 + -32768);")
+            # which can't be parsed.
+            case 'identifier' if arg.text == 'SHRT_MIN':
+                return '', Imm(arg.text)
             case _:
                 return '+', Imm(arg.text)
 
@@ -164,7 +174,7 @@ class CallMatcher:
     _ATOMIC_OPS = {
         'BPF_ADD': '+=',
         'BPF_AND': '&=',
-        'BPF_OR' : '%|=',
+        'BPF_OR' : '|=',
         'BPF_XOR': '^='
         }
 
@@ -182,7 +192,7 @@ class CallMatcher:
         'BPF_MUL': '*= ',
         'BPF_DIV': '/= ',
         'BPF_MOD': '%%= ',
-        'BPF_OR' : '%|= ',
+        'BPF_OR' : '|= ',
         'BPF_AND': '&= ',
         'BPF_LSH': '<<= ',
         'BPF_RSH': '>>= ',
@@ -337,9 +347,9 @@ class InsnMatchers:
                 raise MatchError(f'Unexpected size for atomic op: {sz}')
         sign, off = m.off()
         if fetch:
-            return d('{src} = atomic_fetch_{op}(({sz} *)({dst} {sign} {off}), {src})')
+            return d('{src} = atomic_fetch_{op}(({sz} *)({dst} {sign} {off}), {src});')
         else:
-            return d('lock *({sz} *)({dst} {sign} {off}) {op} {src}')
+            return d('lock *({sz} *)({dst} {sign} {off}) {op} {src};')
 
     def BPF_ATOMIC_OP___xchg(m):
         sz = m.size()
@@ -356,7 +366,7 @@ class InsnMatchers:
             case _:
                 raise MatchError(f'Unexpected size for atomic op: {sz}')
         sign, off = m.off()
-        return d('{src} = {op}({dst} {sign} {off}, {src})')
+        return d('{src} = {op}({dst} {sign} {off}, {src});')
 
     def BPF_ATOMIC_OP___cmpxchg(m):
         sz = m.size()
@@ -374,7 +384,7 @@ class InsnMatchers:
             case _:
                 raise MatchError(f'Unexpected size for atomic op: {sz}')
         sign, off = m.off()
-        return d('{r0} = {op}({dst} {sign} {off}, {r0}, {src})')
+        return d('{r0} = {op}({dst} {sign} {off}, {r0}, {src});')
 
     def BPF_LD_MAP_FD(m):
         dst = m.reg()
@@ -530,13 +540,6 @@ SEC_BY_PROG_TYPE = {
     'BPF_PROG_TYPE_XDP'                    : 'xdp',
 }
 
-def convert_prog_type(node):
-    node.mtype('identifier')
-    text = node.text
-    if text not in SEC_BY_PROG_TYPE:
-        raise MatchError(f'Unsupported prog_type {text}')
-    return SEC_BY_PROG_TYPE[text]
-
 class Verdict(Enum):
     ACCEPT = 1
     REJECT = 2
@@ -549,6 +552,7 @@ class CommentsDict(dict):
 class TestInfo:
     def __init__(self):
         self.name = None
+        self.func_name = None
         self.insns = []
         self.map_fixups = {}
         self.result = None
@@ -557,7 +561,7 @@ class TestInfo:
         self.errstr_unpriv = None
         self.retval = None
         self.flags = []
-        self.sec = "socket" # default section
+        self.prog_type = None
         self.imms = {}
         self.comments = CommentsDict()
 
@@ -584,6 +588,11 @@ def merge_comment_nodes(nodes):
             out.write(n.text)
             last_line = n.end_point[0]
         return out.getvalue()
+
+FLAGS_MAP = {
+    'F_LOAD_WITH_STRICT_ALIGNMENT': 'BPF_F_STRICT_ALIGNMENT',
+    'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS': 'BPF_F_ANY_ALIGNMENT',
+    }
 
 def match_test_info(node):
     node.mtype('initializer_list')
@@ -646,9 +655,10 @@ def match_test_info(node):
             case map_fixup if (map_name := map_fixup.removeprefix('fixup_')) in MAP_NAMES:
                 info.map_fixups[map_name] = convert_int_list(value)
             case 'flags':
-                info.flags.append(value.mtype('identifier').text)
+                text = value.mtype('identifier').text
+                info.flags.append(FLAGS_MAP.get(text, text))
             case 'prog_type':
-                info.sec = convert_prog_type(value)
+                info.prog_type = value.mtype('identifier').text
             case 'retval':
                 info.retval = value.text
             case _:
@@ -679,6 +689,8 @@ def insert_labels(insns):
         if 'goto' not in insn.vars:
             continue
         target = i + insn.vars['goto'] + 1
+        if target > len(insns) or target < 0:
+            continue
         if target not in targets:
             targets[target] = f'l{counter}_%='
             counter += 1
@@ -688,9 +700,17 @@ def insert_labels(insns):
         if i in targets:
             new_insns.append(DString(f'{targets[i]}:', {}))
         new_insns.append(insn)
+    if after_end_label := targets.get(len(insns), None):
+        new_insns.append(DString(f'{after_end_label}:', {}))
     return new_insns
 
+KNOWN_IMM_MACRO_DEFS= set(['INT_MIN', 'LLONG_MIN',
+                           'SHRT_MIN', 'SHRT_MAX',
+                           'MAX_ENTRIES', 'EINVAL'])
+
 def guess_imm_basename(text):
+    if text in KNOWN_IMM_MACRO_DEFS:
+        return text.lower(), False
     if m := re.match(r'^([\w\d]+)$', text):
         return m[1], False
     if m := re.match(r'^&([\w\d]+)$', text):
@@ -750,6 +770,8 @@ def enquote(text):
     return f'"{escaped}"'
 
 def format_insns(insns, newlines):
+    if len(insns) == 0:
+        return '""'
     with io.StringIO() as out:
         for i, insn in enumerate(insns):
             if getattr(insn, 'dummy', False):
@@ -770,19 +792,16 @@ def format_insns(insns, newlines):
                 out.write(reindent_comment(c, 1, False))
         return out.getvalue()
 
-def cname_from_string(string):
-    return re.sub(r'[^\d\w]', '_', string)
-
 def collect_attrs(info):
     def attrs_for_verdict(verdict, unpriv):
-        pfx = 'unpriv_' if unpriv else ''
+        sfx = '_unpriv' if unpriv else ''
         match verdict:
             case Verdict.ACCEPT:
-                return [f'__{pfx}success']
+                return f'__success{sfx}'
             case Verdict.VERBOSE_ACCEPT:
-                return [f'__{pfx}success', f'__{pfx}log_level(2)']
+                return f'__success{sfx}'
             case Verdict.REJECT:
-                return [f'__{pfx}failure']
+                return f'__failure{sfx}'
 
     attrs = []
     def attr(field, fn):
@@ -804,17 +823,22 @@ def collect_attrs(info):
     if separate_priv_unpriv:
         attrs.append(Newline())
     attr('result_unpriv', lambda result: attrs_for_verdict(result, True))
-    attr('errstr_unpriv', lambda errstr: f'__unpriv_msg({errstr})')
+    attr('errstr_unpriv', lambda errstr: f'__msg_unpriv({errstr})')
     if separate_priv_unpriv:
         attrs.append(Newline())
-    if not info.result_unpriv and not info.errstr_unpriv:
+    if (not (info.result_unpriv or info.errstr_unpriv) and
+        info.prog_type in [None, 'BPF_PROG_TYPE_SOCKET_FILTER', 'BPF_PROG_TYPE_CGROUP_SKB']):
         match info.result:
             case Verdict.ACCEPT | Verdict.VERBOSE_ACCEPT:
-                attrs.append('__unpriv_success')
+                attrs.append('__success_unpriv')
             case Verdict.REJECT:
-                attrs.append('__unpriv_failure')
+                attrs.append('__failure_unpriv')
     attrs.append(Newline())
-    attr('retval'       , lambda retval: f'__retval({retval})')
+    if Verdict.VERBOSE_ACCEPT in [info.result, info.result_unpriv]:
+        if Verdict.ACCEPT in [info.result, info.result_unpriv]:
+            logging.warning(f'Log level differs between priv and unpriv for {info.name}')
+        attrs.append('__log_level(2)')
+    #attr('retval'       , lambda retval: f'__retval({retval})')
     attr('flags'        , lambda flags : list(map(lambda flag: f'__flag({flag})', flags)))
 
     return attrs
@@ -867,19 +891,49 @@ def reindent_comment(text, level, indent_at_end=True):
         result += indent
     return result
 
+def convert_prog_type(text):
+    if text is None:
+        return "socket"
+    if text not in SEC_BY_PROG_TYPE:
+        err = f'Unsupported prog_type {text}'
+        logger.warning(err)
+        return err
+    return SEC_BY_PROG_TYPE[text]
+
+def mk_func_base_name(text):
+    text = re.sub(r'[^\d\w]+', '_', text)
+    text = text.strip('_')
+    parts = text.split('_')[-5:]
+    name = '_'.join(parts)
+    if re.match('^\d', name):
+        name = '_' + name
+    return name
+
+def assign_func_names(infos):
+    all_names = defaultdict(list)
+    for info in infos:
+        base_name = mk_func_base_name(info.name)
+        all_names[base_name].append(info)
+    for name, infos in all_names.items():
+        if len(infos) == 1:
+            infos[0].func_name = name
+        else:
+            for i, info in enumerate(infos):
+                info.func_name = f'{name}_{i+1}'
+
 def render_test_info(info, options):
     attrs = collect_attrs(info)
-    func_name = cname_from_string(info.name.strip('"'))
     insns_comments = reindent_comment(info.comments['insns'], 1)
     insn_text = format_insns(info.insns, options.newlines)
     imms_text = format_imms(info.imms)
+    sec = convert_prog_type(info.prog_type)
     if imms_text:
         imms_text = ' ' + imms_text
 
     return f'''
 {render_attrs(attrs)}
-SEC("{info.sec}")
-__naked void {func_name}(void)
+SEC("{sec}")
+__naked void {info.func_name}(void)
 {{
 	{insns_comments}asm volatile (
 {insn_text}	:
@@ -887,6 +941,17 @@ __naked void {func_name}(void)
 	: __clobber_all);
 }}
 '''
+
+def infer_extra_includes(infos):
+    includes = set()
+    for info in infos:
+        for imm in info.imms:
+            match imm:
+                case 'INT_MIN' | 'LLONG_MIN':
+                    includes.add('limits.h')
+                case 'EINVAL':
+                    includes.add('errno.h')
+    return sorted(includes)
 
 MAP_NAMES = set(['map_hash_48b', 'map_hash_16b', 'map_hash_8b',
                  'cgroup_storage', 'percpu_cgroup_storage',
@@ -986,7 +1051,7 @@ struct {
 	__uint(max_entries, 0);
 	__type(key, struct bpf_cgroup_storage_key);
 	__type(value, char[64]);
-} cgroup_storage SEC(".maps");
+} percpu_cgroup_storage SEC(".maps");
 ''')
 
     if need_map('map_xskmap'):
@@ -1012,6 +1077,8 @@ INCLUDES = '''
 @dataclass
 class Options:
     newlines: bool = False
+    discard_prefix: str = ''
+    blacklist: list = ()
 
 @dataclass
 class Comment:
@@ -1043,7 +1110,16 @@ def convert_translation_unit(root_node, options):
             entries.append(Comment(test_node.text))
         else:
             try:
-                entries.append(TestCase(match_test_info(test_node)))
+                info = match_test_info(test_node)
+                skip = False
+                for bl_entry in options.blacklist:
+                    if re.search(bl_entry, info.name):
+                        skip = True
+                        break
+                if skip:
+                    logging.warning(f'skipping blacklisted test {info.name}')
+                    continue
+                entries.append(TestCase(info))
             except MatchError as error:
                 short_text = test_node.text[0:40]
                 logging.warning(f"""
@@ -1051,17 +1127,23 @@ Can't convert test case:
   Location: {test_node.start_point} '{short_text}...'
   Error   : {error}
 """)
+    infos=list(map(lambda e: e.info,
+                   filter(lambda e: isinstance(e, TestCase), entries)))
+    for info in infos:
+        patch_test_info(info)
+    extra_includes = infer_extra_includes(infos)
+    assign_func_names(infos)
 
     with io.StringIO() as out:
         out.write(LICENSE)
         out.write("\n")
         out.write(INCLUDES)
-        print_auxiliary_definitions(out, map(lambda e: e.info,
-                                             filter(lambda e: isinstance(e, TestCase), entries)))
+        for include in extra_includes:
+            out.write(f'#include <{include}>\n')
+        print_auxiliary_definitions(out, infos)
         for entry in entries:
             match entry:
                 case TestCase(info):
-                    patch_test_info(info)
                     out.write(render_test_info(info, options))
                 case Comment(text):
                     out.write(text)
@@ -1081,6 +1163,9 @@ def convert_string(full_text, options):
 
 def convert_file(file_name, options):
     with open(file_name, 'r') as f:
+        short_name = file_name.removeprefix(options.discard_prefix)
+        print(f'/* Converted from {short_name} */')
+        print('/* Use test_loader marker */')
         print(convert_string(f.read(), options))
 
 if __name__ == '__main__':
@@ -1088,13 +1173,17 @@ if __name__ == '__main__':
     p.add_argument('--debug', action=argparse.BooleanOptionalAction)
     p.add_argument('--newlines', action=argparse.BooleanOptionalAction)
     p.add_argument('file_name', type=str)
+    p.add_argument('--discard-prefix', type=str, default='')
+    p.add_argument('--blacklist', action='append')
     args = p.parse_args()
     if args.debug:
         log_level = logging.DEBUG
     else:
         log_level = logging.WARNING
     logging.basicConfig(level=log_level, force=True)
-    convert_file(args.file_name, Options(newlines=args.newlines))
+    convert_file(args.file_name, Options(newlines=args.newlines,
+                                         discard_prefix=args.discard_prefix,
+                                         blacklist=args.blacklist))
 
 # TODO:
 # - preserve comments
