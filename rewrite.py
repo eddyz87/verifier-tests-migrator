@@ -186,19 +186,18 @@ class CallMatcher:
         }
 
     _ALU_OPS = {
-        'BPF_MOV': '= ',
-        'BPF_ADD': '+= ',
-        'BPF_SUB': '-= ',
-        'BPF_MUL': '*= ',
-        'BPF_DIV': '/= ',
-        'BPF_MOD': '%%= ',
-        'BPF_OR' : '|= ',
-        'BPF_AND': '&= ',
-        'BPF_LSH': '<<= ',
-        'BPF_RSH': '>>= ',
-        'BPF_XOR': '^= ',
-        'BPF_NEG': '= -',
-        'BPF_ARSH': 's>>= ',
+        'BPF_MOV': '=',
+        'BPF_ADD': '+=',
+        'BPF_SUB': '-=',
+        'BPF_MUL': '*=',
+        'BPF_DIV': '/=',
+        'BPF_MOD': '%%=',
+        'BPF_OR' : '|=',
+        'BPF_AND': '&=',
+        'BPF_LSH': '<<=',
+        'BPF_RSH': '>>=',
+        'BPF_XOR': '^=',
+        'BPF_ARSH': 's>>=',
         }
 
     _JMP_OPS = {
@@ -271,25 +270,53 @@ class InsnMatchers:
         op = m.alu_op()
         dst = m.reg()
         imm = m.expr()
-        return d('{dst} {op}{imm};')
+        return d('{dst} {op} {imm};')
 
     def BPF_ALU32_IMM(m):
         op = m.alu_op()
         dst = m.reg32()
         imm = m.expr()
-        return d('{dst} {op}{imm};')
+        return d('{dst} {op} {imm};')
 
     def BPF_ALU64_REG(m):
         op = m.alu_op()
         dst = m.reg()
         src = m.reg()
-        return d('{dst} {op}{src};')
+        return d('{dst} {op} {src};')
 
     def BPF_ALU32_REG(m):
         op = m.alu_op()
         dst = m.reg32()
         src = m.reg32()
-        return d('{dst} {op}{src};')
+        return d('{dst} {op} {src};')
+
+    def BPF_ALU32_IMM___BPF_NEG(m):
+        m._next_arg().mtext('BPF_NEG')
+        dst = m.reg32()
+        imm = m.number()
+        if imm != 0:
+            raise MatchError(f'BPF_ALU_IMM(BPF_NEG, ...) expect imm to be zero: {imm}')
+        return d('{dst} = -{dst};')
+
+    def BPF_ALU64_IMM___BPF_NEG(m):
+        m._next_arg().mtext('BPF_NEG')
+        dst = m.reg()
+        imm = m.number()
+        if imm != 0:
+            raise MatchError(f'BPF_ALU_IMM(BPF_NEG, ...) expect imm to be zero: {imm}')
+        return d('{dst} = -{dst};')
+
+    def BPF_ALU64_REG__BPF_NEG(m):
+        m._next_arg().mtext('BPF_NEG')
+        dst = m.reg()
+        src = m.reg()
+        return d('{dst} = -{src};')
+
+    def BPF_ALU32_REG__BPF_NEG(m):
+        m._next_arg().mtext('BPF_NEG')
+        dst = m.reg32()
+        src = m.reg32()
+        return d('{dst} = -{src};')
 
     def BPF_MOV64_IMM(m):
         dst = m.reg()
