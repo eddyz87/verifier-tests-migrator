@@ -55,9 +55,10 @@ class Imm:
 class CallMatcher:
     imm_counter = 0
 
-    def __init__(self, node):
+    def __init__(self, node, pending_fixup):
         node.mtype('call_expression')
         self._args = iter(node['arguments'].named_children)
+        self._pending_fixup = pending_fixup
 
     def _next_arg(self):
         try:
@@ -77,6 +78,10 @@ class CallMatcher:
             raise MatchError()
         except StopIteration:
             pass
+
+    def pending_fixup(self):
+        if not self._pending_fixup:
+            raise MatchError('not pending fixup')
 
     def _regno(self):
         arg = self._next_arg()
@@ -414,6 +419,7 @@ class InsnMatchers:
         return d('{r0} = {op}({dst} {sign} {off}, {r0}, {src});')
 
     def BPF_LD_MAP_FD(m):
+        m.pending_fixup()
         dst = m.reg()
         imm = m.expr()
         insn = d('{dst} = {imm} ll;')
@@ -506,10 +512,10 @@ def func_matchers_map():
 
 FUNC_MATCHERS = func_matchers_map()
 
-def convert_insn(call_node):
+def convert_insn(call_node, pending_fixup):
     errors = []
     for fn in FUNC_MATCHERS[call_node['function'].text]:
-        m = CallMatcher(call_node)
+        m = CallMatcher(call_node, pending_fixup)
         try:
             result = fn(m)
             m.ensure_args_consumed()
@@ -621,11 +627,35 @@ FLAGS_MAP = {
     'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS': 'BPF_F_ANY_ALIGNMENT',
     }
 
+def convert_insn_list(insns_to_convert, fixup_locations):
+    insn_comments = []
+    insns = []
+    for insn in insns_to_convert:
+        if insn.type == 'comment':
+            insn_comments.append(insn)
+        else:
+            idx = len(insns)
+            pending_fixup = idx in fixup_locations
+            insn = convert_insn(insn, pending_fixup)
+            insn.comment = merge_comment_nodes(insn_comments)
+            insns.append(insn)
+            if getattr(insn, 'double_size', False):
+                dummy = DString('__dummy__', {})
+                dummy.dummy = True
+                insns.append(dummy)
+            insn_comments = []
+    if len(insns) > 0:
+        insns[-1].after_comment = merge_comment_nodes(insn_comments)
+    elif len(insn_comments) > 0:
+        logging.warning(f'Dropping trailing comments {insn_comments} at {value}')
+    return insns
+
 def match_test_info(node):
     node.mtype('initializer_list')
     elems = iter(node.named_children)
     info = TestInfo()
     pending_comments = []
+    insns_to_convert = None
 
     while True:
         node = mnext(elems)
@@ -654,23 +684,7 @@ def match_test_info(node):
         # print(f'  field={field} value={value}')
         match field:
             case 'insns':
-                insn_comments = []
-                for insn in value.mtype('initializer_list').named_children:
-                    if insn.type == 'comment':
-                        insn_comments.append(insn)
-                    else:
-                        insn = convert_insn(insn)
-                        insn.comment = merge_comment_nodes(insn_comments)
-                        info.insns.append(insn)
-                        if getattr(insn, 'double_size', False):
-                            dummy = DString('__dummy__', {})
-                            dummy.dummy = True
-                            info.insns.append(dummy)
-                        insn_comments = []
-                if len(info.insns) > 0:
-                    info.insns[-1].after_comment = merge_comment_nodes(insn_comments)
-                elif len(insn_comments) > 0:
-                    logging.warning(f'Dropping trailing comments {insn_comments} at {value}')
+                insns_to_convert = value.mtype('initializer_list').named_children
             case 'errstr':
                 info.errstr = value.text
             case 'errstr_unpriv':
@@ -691,6 +705,10 @@ def match_test_info(node):
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
+    fixup_locations = set()
+    for locations in info.map_fixups.values():
+        fixup_locations |= set(locations)
+    info.insns = convert_insn_list(insns_to_convert, fixup_locations)
     if pending_comments:
         logging.warning(f'Dropping pending comments {pending_comments}')
     return info
