@@ -521,6 +521,44 @@ __naked void t9(void)
 char _license[] SEC("license") = "GPL";
 ''')
 
+    def test_bad_insns(self):
+        self._aux('''
+{
+	"imm",
+	.insns = {
+	BPF_ALU64_IMM(12),
+	BPF_ALU64_REG(CAPIBARA, BPF_REG_1, BPF_REG_2),
+	BPF_LD_IMM64(),
+	},
+	.result = ACCEPT,
+},
+''',
+                  '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+#include "../../../include/linux/filter.h"
+
+__description("imm")
+__success __success_unpriv
+SEC("socket")
+__naked void imm(void)
+{
+	asm volatile (
+	".8byte %[alu64_imm];"
+	".8byte %[alu64_reg];"
+	"NOT CONVERTED: BPF_LD_IMM64()"
+	:
+	: __imm_insn(alu64_imm, BPF_ALU64_IMM(12)),
+	  __imm_insn(alu64_reg, BPF_ALU64_REG(CAPIBARA, BPF_REG_1, BPF_REG_2))
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";
+''')
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, force=True)
     unittest.main()

@@ -523,6 +523,15 @@ def func_matchers_map():
 
 FUNC_MATCHERS = func_matchers_map()
 
+EIGHT_BYTE_INSNS = set(
+    ['BPF_ALU64_IMM', 'BPF_ALU32_IMM', 'BPF_ALU64_REG', 'BPF_ALU32_REG',
+     'BPF_MOV64_IMM', 'BPF_MOV32_IMM', 'BPF_MOV64_REG', 'BPF_MOV32_REG',
+     'BPF_JMP_IMM'  , 'BPF_JMP32_IMM', 'BPF_JMP_REG'  , 'BPF_JMP32_REG',
+     'BPF_JMP_A'    , 'BPF_EXIT_INSN', 'BPF_EMIT_CALL', 'BPF_CALL_REL' ,
+     'BPF_LDX_MEM'  , 'BPF_ST_MEM'   , 'BPF_STX_MEM'  , 'BPF_ATOMIC_OP',
+     'BPF_LD_ABS'   , 'BPF_LD_IND'   , 'BPF_RAW_INSN'
+    ])
+
 def convert_insn(call_node, pending_fixup):
     errors = []
     node_func_name = call_node['function'].text
@@ -535,6 +544,12 @@ def convert_insn(call_node, pending_fixup):
         except MatchError as e:
             if is_debug():
                 errors.append((fn, e))
+
+    if node_func_name in EIGHT_BYTE_INSNS:
+        imm_base_name = re.sub(r'^BPF_', '', node_func_name).lower()
+        imm = Imm(call_node.text, base_name=imm_base_name, insn=True)
+        return d('.8byte {imm};')
+
     text = call_node.text.replace('\n', ' ')
     logging.warning(f"Can't convert {text}")
     if is_debug():
@@ -546,9 +561,6 @@ def convert_insn(call_node, pending_fixup):
             msg.write(f"Parse tree:\n")
             msg.write(pptree(call_node))
             logging.debug(msg.getvalue())
-    # imm_base_name = re.sub(r'^BPF_', '', node_func_name).lower()
-    # imm = Imm(call_node.text, base_name=imm_base_name, insn=True)
-    # return d('.8byte {imm};')
     return d('NOT CONVERTED: {text}')
 
 #################################
