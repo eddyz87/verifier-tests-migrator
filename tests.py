@@ -39,6 +39,8 @@ class Tests(unittest.TestCase):
 	BPF_LD_MAP_FD(BPF_REG_8, 42),
 	// comment
 	BPF_ST_MEM(BPF_DW, BPF_REG_0, 0, offsetof(struct test_val, foo)),
+	BPF_CALL_REL(1),
+	BPF_EXIT_INSN(),
 	BPF_EXIT_INSN(),
 	},
 	.fixup_map_hash_48b = { 3 },
@@ -104,6 +106,9 @@ __naked void invalid_and_of_negative_number(void)
 	".8byte 0;"
 	// comment
 	"*(u64*)(r0 + 0) = %[test_val_foo_offset];"
+	"call l1_%=;"
+	"exit;"
+"l1_%=:"
 	"exit;"
 	:
 	: [__imm_0]"i"(-8 + 2),

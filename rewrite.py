@@ -489,6 +489,10 @@ class InsnMatchers:
     def BPF_EXIT_INSN(m):
         return d('exit;')
 
+    def BPF_CALL_REL(m):
+        goto = m.number()
+        return d('call {goto};')
+
     def BPF_RAW_INSN___bpf_call(m):
         m.jmp_call()
         m.zero()
