@@ -48,9 +48,11 @@ def text_to_int(text):
     else:
         return int(text)
 
-@dataclass
+@dataclass(frozen=True)
 class Imm:
     text: str
+    base_name: str = None
+    insn: bool = False
 
 class CallMatcher:
     imm_counter = 0
@@ -311,16 +313,16 @@ class InsnMatchers:
             raise MatchError(f'BPF_ALU_IMM(BPF_NEG, ...) expect imm to be zero: {imm}')
         return d('{dst} = -{dst};')
 
-    def BPF_ALU64_REG__BPF_NEG(m):
-        m._next_arg().mtext('BPF_NEG')
-        dst = m.reg()
-        src = m.reg()
-        return d('{dst} = -{src};')
-
-    def BPF_ALU32_REG__BPF_NEG(m):
+    def BPF_ALU32_REG___BPF_NEG(m):
         m._next_arg().mtext('BPF_NEG')
         dst = m.reg32()
         src = m.reg32()
+        return d('{dst} = -{src};')
+
+    def BPF_ALU64_REG___BPF_NEG(m):
+        m._next_arg().mtext('BPF_NEG')
+        dst = m.reg()
+        src = m.reg()
         return d('{dst} = -{src};')
 
     def BPF_MOV64_IMM(m):
@@ -419,12 +421,21 @@ class InsnMatchers:
         return d('{r0} = {op}({dst} {sign} {off}, {r0}, {src});')
 
     def BPF_LD_MAP_FD(m):
-        m.pending_fixup()
-        dst = m.reg()
-        imm = m.expr()
-        insn = d('{dst} = {imm} ll;')
-        insn.double_size = True
-        return insn
+        if m._pending_fixup:
+            dst = m.reg()
+            imm = m.expr()
+            insn = d('{dst} = {imm} ll;')
+            insn.double_size = True
+            return insn
+        else:
+            dst = m._next_arg().text
+            imm = m._next_arg().text
+            raw = Imm(f'BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, {dst}, ' +
+                      f'BPF_PSEUDO_MAP_FD, 0, {imm})',
+                      base_name='ld_map_fd',
+                      insn=True)
+            return [d('.8byte {raw};'),
+                    d('.8byte 0;')]
 
     def BPF_LD_ABS(m):
         sz = m.size()
@@ -514,7 +525,8 @@ FUNC_MATCHERS = func_matchers_map()
 
 def convert_insn(call_node, pending_fixup):
     errors = []
-    for fn in FUNC_MATCHERS[call_node['function'].text]:
+    node_func_name = call_node['function'].text
+    for fn in FUNC_MATCHERS[node_func_name]:
         m = CallMatcher(call_node, pending_fixup)
         try:
             result = fn(m)
@@ -534,6 +546,9 @@ def convert_insn(call_node, pending_fixup):
             msg.write(f"Parse tree:\n")
             msg.write(pptree(call_node))
             logging.debug(msg.getvalue())
+    # imm_base_name = re.sub(r'^BPF_', '', node_func_name).lower()
+    # imm = Imm(call_node.text, base_name=imm_base_name, insn=True)
+    # return d('.8byte {imm};')
     return d('NOT CONVERTED: {text}')
 
 #################################
@@ -588,7 +603,7 @@ class TestInfo:
         self.func_name = None
         self.insns = []
         self.map_fixups = {}
-        self.result = None
+        self.result = Verdict.REJECT
         self.result_unpriv = None
         self.errstr = None
         self.errstr_unpriv = None
@@ -636,13 +651,16 @@ def convert_insn_list(insns_to_convert, fixup_locations):
         else:
             idx = len(insns)
             pending_fixup = idx in fixup_locations
-            insn = convert_insn(insn, pending_fixup)
-            insn.comment = merge_comment_nodes(insn_comments)
-            insns.append(insn)
-            if getattr(insn, 'double_size', False):
-                dummy = DString('__dummy__', {})
-                dummy.dummy = True
-                insns.append(dummy)
+            converted = convert_insn(insn, pending_fixup)
+            if type(converted) != list:
+                converted = [converted]
+            converted[0].comment = merge_comment_nodes(insn_comments)
+            for cinsn in converted:
+                insns.append(cinsn)
+                if getattr(cinsn, 'double_size', False):
+                    dummy = DString('__dummy__', {})
+                    dummy.dummy = True
+                    insns.append(dummy)
             insn_comments = []
     if len(insns) > 0:
         insns[-1].after_comment = merge_comment_nodes(insn_comments)
@@ -655,7 +673,7 @@ def match_test_info(node):
     elems = iter(node.named_children)
     info = TestInfo()
     pending_comments = []
-    insns_to_convert = None
+    insns_to_convert = []
 
     while True:
         node = mnext(elems)
@@ -753,7 +771,10 @@ KNOWN_IMM_MACRO_DEFS= set(['INT_MIN', 'LLONG_MIN',
                            'SHRT_MIN', 'SHRT_MAX',
                            'MAX_ENTRIES', 'EINVAL'])
 
-def guess_imm_basename(text):
+def guess_imm_basename(imm):
+    if imm.base_name:
+        return imm.base_name, False
+    text = imm.text
     if text in KNOWN_IMM_MACRO_DEFS:
         return text.lower(), False
     if m := re.match(r'^([\w\d]+)$', text):
@@ -764,8 +785,8 @@ def guess_imm_basename(text):
         return f'{m[1]}_{m[2]}_offset', False
     return '__imm', True
 
-def gen_imm_name(text, counters):
-    basename, force_counter = guess_imm_basename(text)
+def gen_imm_name(imm, counters):
+    basename, force_counter = guess_imm_basename(imm)
     counter = counters.get(basename, 0)
     counters[basename] = counter + 1
     if counter > 0 or force_counter:
@@ -774,22 +795,25 @@ def gen_imm_name(text, counters):
         return basename
 
 def rename_imms(insns):
-    text_to_name = {}
+    imm_to_name = {}
     counters = {}
     for insn in insns:
-        for var_name, val in insn.vars.items():
-            if not isinstance(val, Imm):
+        for var_name, imm in insn.vars.items():
+            if not isinstance(imm, Imm):
                 continue
-            if val.text not in text_to_name:
-                text_to_name[val.text] = gen_imm_name(val.text, counters)
-            imm_name = text_to_name[val.text]
+            if imm not in imm_to_name:
+                imm_to_name[imm] = gen_imm_name(imm, counters)
+            imm_name = imm_to_name[imm]
             insn.vars[var_name] = f'%[{imm_name}]'
-    return text_to_name
+    return imm_to_name
 
-def format_imms(text_to_name):
+def format_imms(imm_to_name):
     imms = []
-    for text, name in text_to_name.items():
-        if text == name:
+    for imm, name in imm_to_name.items():
+        text = imm.text
+        if imm.insn:
+            imms.append(f'__imm_insn({name}, {text})')
+        elif text == name:
             imms.append(f'__imm({name})')
         elif text == f'&{name}':
             imms.append(f'__imm_addr({name})')
@@ -859,25 +883,22 @@ def collect_attrs(info):
                 case list(l):
                     attrs.extend(l)
 
-    separate_priv_unpriv = info.result_unpriv or info.errstr_unpriv or info.errstr
-
     attr('name'         , lambda name  : f'__description({name})')
     attrs.append(Newline())
     attr('result'       , lambda result: attrs_for_verdict(result, False))
     attr('errstr'       , lambda errstr: f'__msg({errstr})')
-    if separate_priv_unpriv:
-        attrs.append(Newline())
-    attr('result_unpriv', lambda result: attrs_for_verdict(result, True))
-    attr('errstr_unpriv', lambda errstr: f'__msg_unpriv({errstr})')
-    if separate_priv_unpriv:
-        attrs.append(Newline())
-    if (not (info.result_unpriv or info.errstr_unpriv) and
-        info.prog_type in [None, 'BPF_PROG_TYPE_SOCKET_FILTER', 'BPF_PROG_TYPE_CGROUP_SKB']):
-        match info.result:
-            case Verdict.ACCEPT | Verdict.VERBOSE_ACCEPT:
-                attrs.append('__success_unpriv')
-            case Verdict.REJECT:
-                attrs.append('__failure_unpriv')
+    if info.prog_type in [None, 'BPF_PROG_TYPE_SOCKET_FILTER', 'BPF_PROG_TYPE_CGROUP_SKB']:
+        if info.errstr:
+            attrs.append(Newline())
+        if (info.result_unpriv is None and info.errstr_unpriv is None):
+            match info.result:
+                case Verdict.ACCEPT | Verdict.VERBOSE_ACCEPT:
+                    attrs.append('__success_unpriv')
+                case Verdict.REJECT:
+                    attrs.append('__failure_unpriv')
+        else:
+            attr('result_unpriv', lambda result: attrs_for_verdict(result, True))
+            attr('errstr_unpriv', lambda errstr: f'__msg_unpriv({errstr})')
     attrs.append(Newline())
     if Verdict.VERBOSE_ACCEPT in [info.result, info.result_unpriv]:
         if Verdict.ACCEPT in [info.result, info.result_unpriv]:
@@ -991,11 +1012,13 @@ def infer_extra_includes(infos):
     includes = set()
     for info in infos:
         for imm in info.imms:
-            match imm:
+            match imm.text:
                 case 'INT_MIN' | 'LLONG_MIN':
-                    includes.add('limits.h')
+                    includes.add('<limits.h>')
                 case 'EINVAL':
-                    includes.add('errno.h')
+                    includes.add('<errno.h>')
+            if imm.insn:
+                includes.add('"../../../include/linux/filter.h"')
     return sorted(includes)
 
 MAP_NAMES = set(['map_hash_48b', 'map_hash_16b', 'map_hash_8b',
@@ -1184,7 +1207,7 @@ Can't convert test case:
         out.write("\n")
         out.write(INCLUDES)
         for include in extra_includes:
-            out.write(f'#include <{include}>\n')
+            out.write(f'#include {include}\n')
         print_auxiliary_definitions(out, infos)
         for entry in entries:
             match entry:
@@ -1193,6 +1216,8 @@ Can't convert test case:
                 case Comment(text):
                     out.write(text)
                     out.write("\n")
+        out.write('\n')
+        out.write('char _license[] SEC("license") = "GPL";\n')
         return out.getvalue()
 
 ###############################
@@ -1219,7 +1244,7 @@ if __name__ == '__main__':
     p.add_argument('--newlines', action=argparse.BooleanOptionalAction)
     p.add_argument('file_name', type=str)
     p.add_argument('--discard-prefix', type=str, default='')
-    p.add_argument('--blacklist', action='append')
+    p.add_argument('--blacklist', action='append', default=())
     args = p.parse_args()
     if args.debug:
         log_level = logging.DEBUG

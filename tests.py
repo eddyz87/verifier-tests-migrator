@@ -23,13 +23,20 @@ class Tests(unittest.TestCase):
 	BPF_ALU64_IMM(BPF_ADD, BPF_REG_2, -8 + 2),
 	BPF_LD_MAP_FD(BPF_REG_1, 0),
 	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem),
-	BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 6),
+	BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 0, 1),
 	BPF_LDX_MEM(BPF_B, BPF_REG_1, BPF_REG_0, 0),
 	BPF_ALU64_IMM(BPF_AND, BPF_REG_1, -4),
 	BPF_ALU64_IMM(BPF_LSH, BPF_REG_1, 2),
 	BPF_ALU64_IMM(BPF_MOD, BPF_REG_1, 2),
 	BPF_ALU64_IMM(BPF_OR, BPF_REG_1, 2),
 	BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_1),
+	BPF_ALU64_REG(BPF_NEG, BPF_REG_1, BPF_REG_1),
+	BPF_ALU32_REG(BPF_NEG, BPF_REG_1, BPF_REG_1),
+	BPF_ALU64_IMM(BPF_NEG, BPF_REG_2, 0),
+	BPF_ALU32_IMM(BPF_NEG, BPF_REG_2, 0),
+	// invalid LD_MAP_FD (it is not patched)
+	BPF_LD_MAP_FD(BPF_REG_7, 32),
+	BPF_LD_MAP_FD(BPF_REG_8, 42),
 	// comment
 	BPF_ST_MEM(BPF_DW, BPF_REG_0, 0, offsetof(struct test_val, foo)),
 	BPF_EXIT_INSN(),
@@ -46,6 +53,7 @@ class Tests(unittest.TestCase):
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
+#include "../../../include/linux/filter.h"
 
 #define MAX_ENTRIES 11
 
@@ -79,12 +87,21 @@ __naked void invalid_and_of_negative_number(void)
 	"call %[bpf_map_lookup_elem];"
 	"if r0 == 0 goto l0_%=;"
 	"r1 = *(u8*)(r0 + 0);"
+"l0_%=:"
 	"r1 &= -4;"
 	"r1 <<= 2;"
 	"r1 %%= 2;"
 	"r1 |= 2;"
 	"r0 += r1;"
-"l0_%=:"
+	"r1 = -r1;"
+	"w1 = -w1;"
+	"r2 = -r2;"
+	"w2 = -w2;"
+	// invalid LD_MAP_FD (it is not patched)
+	".8byte %[ld_map_fd];"
+	".8byte 0;"
+	".8byte %[ld_map_fd_1];"
+	".8byte 0;"
 	// comment
 	"*(u64*)(r0 + 0) = %[test_val_foo_offset];"
 	"exit;"
@@ -92,9 +109,13 @@ __naked void invalid_and_of_negative_number(void)
 	: [__imm_0]"i"(-8 + 2),
 	  [test_val_foo_offset]"i"(offsetof(struct test_val, foo)),
 	  __imm(bpf_map_lookup_elem),
-	  __imm_addr(map_hash_48b)
+	  __imm_addr(map_hash_48b),
+	  __imm_insn(ld_map_fd, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_7, BPF_PSEUDO_MAP_FD, 0, 32)),
+	  __imm_insn(ld_map_fd_1, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_8, BPF_PSEUDO_MAP_FD, 0, 42))
 	: __clobber_all);
 }
+
+char _license[] SEC("license") = "GPL";
 ''')
 
     def test_double_size_insn(self):
@@ -142,6 +163,8 @@ __naked void dsize(void)
 	: __imm_addr(map_hash_8b)
 	: __clobber_all);
 }
+
+char _license[] SEC("license") = "GPL";
 ''')
 
     def test_double_size_insn2(self):
@@ -178,6 +201,8 @@ __naked void dsize2(void)
 	:
 	: __clobber_all);
 }
+
+char _license[] SEC("license") = "GPL";
 '''.lstrip())
 
     def test_atomic(self):
@@ -240,6 +265,8 @@ __naked void atomic(void)
 	:
 	: __clobber_all);
 }
+
+char _license[] SEC("license") = "GPL";
 ''')
 
     def test_comments(self):
@@ -317,6 +344,8 @@ __naked void atomic(void)
 	:
 	: __clobber_all);
 }
+
+char _license[] SEC("license") = "GPL";
 ''')
 
     def test_off(self):
@@ -364,6 +393,132 @@ __naked void imm(void)
 	  __imm(foo)
 	: __clobber_all);
 }
+
+char _license[] SEC("license") = "GPL";
+''')
+
+    def test_result_attrs(self):
+        self._aux('''
+{ "t1", },
+{ "t2", .result = ACCEPT, },
+{ "t3", .result = VERBOSE_ACCEPT, },
+{ "t4", .result = REJECT, },
+{ "t5", .result = ACCEPT, .errstr = "x" },
+{ "t6", .result = ACCEPT, .errstr = "x", .result_unpriv = REJECT, .errstr_unpriv = "y" },
+{ "t7", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_SOCKET_FILTER },
+{ "t8", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_CGROUP_SKB },
+{ "t9", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_LSM },
+''',
+                  '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+__description("t1")
+__failure __failure_unpriv
+SEC("socket")
+__naked void t1(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t2")
+__success __success_unpriv
+SEC("socket")
+__naked void t2(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t3")
+__success __success_unpriv
+__log_level(2)
+SEC("socket")
+__naked void t3(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t4")
+__failure __failure_unpriv
+SEC("socket")
+__naked void t4(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t5")
+__success __msg("x")
+__success_unpriv
+SEC("socket")
+__naked void t5(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t6")
+__success __msg("x")
+__failure_unpriv __msg_unpriv("y")
+SEC("socket")
+__naked void t6(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t7")
+__success __success_unpriv
+SEC("socket")
+__naked void t7(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t8")
+__success __success_unpriv
+SEC("cgroup/skb")
+__naked void t8(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+__description("t9")
+__success
+SEC("lsm")
+__naked void t9(void)
+{
+	asm volatile (
+""	:
+	:
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";
 ''')
 
 if __name__ == '__main__':
