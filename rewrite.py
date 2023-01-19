@@ -727,7 +727,7 @@ def match_test_info(node):
                 info.result = parse_test_result(value, 'result')
             case 'result_unpriv':
                 info.result_unpriv = parse_test_result(value, 'result_unpriv')
-            case map_fixup if (map_name := map_fixup.removeprefix('fixup_')) in MAP_NAMES:
+            case map_fixup if (map_name := map_fixup.removeprefix('fixup_')) in MAPS:
                 info.map_fixups[map_name] = convert_int_list(value)
             case 'flags':
                 text = value.mtype('identifier').text
@@ -978,7 +978,7 @@ def convert_prog_type(text):
         return "socket"
     if text not in SEC_BY_PROG_TYPE:
         err = f'Unsupported prog_type {text}'
-        logger.warning(err)
+        logging.warning(err)
         return err
     return SEC_BY_PROG_TYPE[text]
 
@@ -1037,116 +1037,314 @@ def infer_extra_includes(infos):
                 includes.add('"../../../include/linux/filter.h"')
     return sorted(includes)
 
-MAP_NAMES = set(['map_hash_48b', 'map_hash_16b', 'map_hash_8b',
-                 'cgroup_storage', 'percpu_cgroup_storage',
-                 'map_array_48b', 'map_xskmap'])
-
-def print_auxiliary_definitions(out, infos):
-    used_maps = set()
-
-    for info in infos:
-        for map_name, fixups in info.map_fixups.items():
-            if fixups:
-                used_maps.add(map_name)
-
-    def need_map(*names):
-        return any([n in used_maps for n in names])
-
-    def do_print(text):
-        out.write(text)
-
-    if need_map('map_hash_48b', 'map_array_48b'):
-        do_print('''
+MAPS = {
+    'MAX_ENTRIES': {
+        'deps': [],
+        'text': '''
 #define MAX_ENTRIES 11
-''')
+'''},
 
-    if need_map('cgroup_storage', 'percpu_cgroup_storage'):
-        do_print('''
+    'TEST_DATA_LEN': {
+        'deps': [],
+        'text': '''
 #define TEST_DATA_LEN 64
-''')
+'''},
 
-    if need_map('map_hash_48b', 'map_array_48b'):
-        do_print('''
+    'test_val': {
+        'deps': ['MAX_ENTRIES'],
+        'text': '''
 struct test_val {
 	unsigned int index;
 	int foo[MAX_ENTRIES];
 };
-''')
+'''},
 
-    if need_map('map_hash_48b'):
-        do_print('''
+    'other_val': {
+        'deps': [],
+        'text': '''
+struct other_val {
+	long long foo;
+	long long bar;
+};
+'''},
+
+    'map_hash_48b': {
+        'deps': ['test_val'],
+        'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
 	__type(value, struct test_val);
 } map_hash_48b SEC(".maps");
-''')
+'''},
 
-    if need_map('map_array_48b'):
-        do_print('''
+    'map_array_48b': {
+        'deps': ['test_val'],
+        'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, int);
 	__type(value, struct test_val);
 } map_array_48b SEC(".maps");
-''')
+'''},
 
-    if need_map('map_hash_16b'):
-            do_print('''
-struct other_val {
-	long long foo;
-	long long bar;
-};
-
+    'map_hash_16b': {
+        'deps': ['other_val'],
+        'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
 	__type(value, struct other_val);
 } map_hash_16b SEC(".maps");
-''')
+'''},
 
-    if need_map('map_hash_8b'):
-        do_print('''
+    'map_hash_8b': {
+        'deps': [],
+        'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1);
 	__type(key, long long);
 	__type(value, long long);
 } map_hash_8b SEC(".maps");
-''')
+'''},
 
-    if need_map('cgroup_storage'):
-        do_print('''
+    'cgroup_storage': {
+        'deps': ['TEST_DATA_LEN'],
+        'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_CGROUP_STORAGE);
 	__uint(max_entries, 0);
 	__type(key, struct bpf_cgroup_storage_key);
 	__type(value, char[TEST_DATA_LEN]);
 } cgroup_storage SEC(".maps");
-''')
+'''},
 
-    if need_map('percpu_cgroup_storage'):
-        do_print('''
+    'percpu_cgroup_storage': {
+        'deps': [],
+        'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE);
 	__uint(max_entries, 0);
 	__type(key, struct bpf_cgroup_storage_key);
 	__type(value, char[64]);
 } percpu_cgroup_storage SEC(".maps");
-''')
+'''},
 
-    if need_map('map_xskmap'):
-        do_print('''
+    'map_xskmap': {
+        'deps': [],
+        'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_XSKMAP);
 	__uint(max_entries, 1);
 	__type(key, int);
 	__type(value, int);
 } map_xskmap SEC(".maps");
-''')
+'''},
+
+    'map_array_small': {
+        'deps': [],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, char);
+} map_array_small SEC(".maps");
+'''},
+
+    'map_reuseport_array': {
+        'deps': [],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_REUSEPORT_SOCKARRAY);
+	__uint(max_entries, 1);
+	__type(key, u32);
+	__type(value, u64);
+} map_reuseport_array SEC(".maps");
+'''},
+
+    'map_ringbuf': {
+        'deps': [],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 4096);
+} map_ringbuf SEC(".maps");
+'''},
+
+    'map_sockhash': {
+        'deps': [],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_SOCKHASH);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, int);
+} map_sockhash SEC(".maps");
+'''},
+
+    'map_sockmap': {
+        'deps': [],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_SOCKMAP);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, int);
+} map_sockmap SEC(".maps");
+'''},
+
+    'map_stacktrace': {
+        'deps': [],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_STACK_TRACE);
+	__uint(max_entries, 1);
+	__type(key, u32);
+	__type(value, u64);
+} map_stacktrace SEC(".maps");
+'''},
+
+    'map_array_ro': {
+        'deps': ['test_val'],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct test_val);
+	__uint(map_flags, BPF_F_RDONLY_PROG);
+} map_stacktrace SEC(".maps");
+'''},
+
+    'map_array_wo': {
+        'deps': ['test_val'],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct test_val);
+	__uint(map_flags, BPF_F_WRONLY_PROG);
+} map_stacktrace SEC(".maps");
+'''},
+
+    'val': {
+        'deps': [],
+        'text': '''
+struct val {
+	int cnt;
+	struct bpf_spin_lock l;
+};
+'''},
+
+    'timer': {
+        'deps': [],
+        'text': '''
+struct timer {
+	struct bpf_timer t;
+};
+'''},
+
+    'btf_ptr': {
+        'deps': [],
+        'text': '''
+struct btf_ptr {
+	struct prog_test_ref_kfunc __kptr *ptr;
+	struct prog_test_ref_kfunc __kptr_ref *ptr;
+	struct prog_test_member __kptr_ref *ptr;
+}
+'''},
+
+    'map_spin_lock': {
+        'deps': ['val'],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct val);
+} map_spin_lock SEC(".maps");
+'''},
+
+    'map_in_map': {
+        'deps': [],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, int);
+	__array(values, struct {
+		__uint(type, BPF_MAP_TYPE_ARRAY);
+		__uint(max_entries, 1);
+		__type(key, int);
+		__type(value, int);
+	});
+} map_in_map SEC(".maps");
+'''},
+
+    'map_timer': {
+        'deps': ['timer'],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct timer);
+} map_timer SEC(".maps");
+'''},
+
+    'sk_storage_map': {
+        'deps': ['val'],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_SK_STORAGE);
+	__uint(max_entries, 0);
+	__type(key, int);
+	__type(value, struct val);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+} sk_storage_map SEC(".maps");
+'''},
+
+    'map_kptr': {
+        'deps': ['btf_ptr'],
+        'text': '''
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, struct btf_ptr);
+} map_kptr SEC(".maps");
+'''},
+
+}
+
+def print_auxiliary_definitions(out, infos):
+    used_maps = []
+    printed = set()
+
+    for info in infos:
+        for map_name, fixups in info.map_fixups.items():
+            if fixups:
+                used_maps.append(map_name)
+    used_maps = sorted(set(used_maps))
+
+    def print_with_deps(name):
+        if name in printed:
+            return
+        printed.add(name)
+        desc = MAPS[name]
+        for dep in desc['deps']:
+            print_with_deps(dep)
+        out.write(desc['text'])
+
+    for m in used_maps:
+        print_with_deps(m)
 
 LICENSE = '''
 // SPDX-License-Identifier: GPL-2.0
