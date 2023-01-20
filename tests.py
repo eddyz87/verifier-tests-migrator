@@ -564,6 +564,64 @@ __naked void imm(void)
 char _license[] SEC("license") = "GPL";
 ''')
 
+    def test_kfunc(self):
+        self._aux('''
+{
+	"kfunc",
+	.insns = {
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, BPF_PSEUDO_KFUNC_CALL, 0, 0),
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, BPF_PSEUDO_KFUNC_CALL, 0, 0),
+	BPF_EXIT_INSN(),
+	},
+	.result = ACCEPT,
+	.fixup_kfunc_btf_id = {
+		{ "bpf_kfunc_call_test_acquire", 0 },
+		{ "bpf_kfunc_call_test_release", 1 },
+	},
+},
+''',
+                  '''
+// SPDX-License-Identifier: GPL-2.0
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+struct prog_test_ref_kfunc {} __attribute__((preserve_access_index));
+
+extern struct prog_test_ref_kfunc *
+	bpf_kfunc_call_test_acquire(unsigned long *scalar_ptr) __ksym;
+extern void bpf_kfunc_call_test_release(struct prog_test_ref_kfunc *p) __ksym;
+
+/* BTF FUNC records are not generated for kfuncs referenced
+ * from inline assembly. These records are necessary for
+ * libbpf to link the program. The function below is a hack
+ * to ensure that BTF FUNC records are generated.
+ */
+void __kfunc_btf_root()
+{
+	bpf_kfunc_call_test_acquire(0);
+	bpf_kfunc_call_test_release(0);
+}
+
+__description("kfunc")
+__success __success_unpriv
+SEC("socket")
+__naked void kfunc(void)
+{
+	asm volatile (
+	"call %[bpf_kfunc_call_test_acquire];"
+	"call %[bpf_kfunc_call_test_release];"
+	"exit;"
+	:
+	: __imm(bpf_kfunc_call_test_acquire),
+	  __imm(bpf_kfunc_call_test_release)
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";
+''')
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, force=True)
     unittest.main()

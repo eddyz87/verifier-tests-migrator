@@ -1068,11 +1068,8 @@ __naked void {info.func_name}(void)
 
 def infer_includes(infos):
     extra = set()
-    vmlinux = False
     filterh = False
     for info in infos:
-        if info.kfunc_pairs:
-            vmlinux = True
         for imm in info.imms:
             match imm.text:
                 case 'INT_MIN' | 'LLONG_MIN':
@@ -1082,10 +1079,7 @@ def infer_includes(infos):
             if imm.insn:
                 filterh = True
     includes = []
-    if vmlinux:
-        includes.append('<vmlinux.h>')
-    else:
-        includes.append('<linux/bpf.h>')
+    includes.append('<linux/bpf.h>')
     includes.append('<bpf/bpf_helpers.h>')
     includes.extend(sorted(extra))
     if filterh:
@@ -1104,16 +1098,40 @@ def find_function_declarator(declaration):
                 raise Exception(f'Unexpected node type: {node.type}')
     return recur(declaration)
 
+@dataclass
+class KFuncInfo:
+    proto: str
+    num_args: int
+    deps: set
+
+def scan_struct_deps(root_node):
+    deps = set()
+    def recur(node):
+        match node.type:
+            case 'struct_specifier':
+                deps.add(f'struct {node["name"].text}')
+            case _:
+                for ch in node.named_children:
+                    recur(ch)
+    recur(root_node)
+    return deps
+
 def parse_kfunc_defs(text):
     defs = {}
     node = NodeWrapper(parse_c_string(text))
     for child in node.named_children:
         func = find_function_declarator(child)
         name = func['declarator'].mtype('identifier').text
-        defs[name] = child.text
+        params = func['parameters'].named_children
+        if len(params) == 1 and params[0].text == 'void':
+            num_args = 0
+        else:
+            num_args = len(params)
+        deps = scan_struct_deps(child)
+        defs[name] = KFuncInfo(child.text, num_args, deps)
     return defs
 
-KFUNCS = parse_kfunc_defs('''
+KFUNCS_TEXT = '''
 extern struct prog_test_member *bpf_kfunc_call_memb_acquire(void) __ksym;
 extern struct prog_test_ref_kfunc *
 	bpf_kfunc_call_test_acquire(unsigned long *scalar_ptr) __ksym;
@@ -1131,7 +1149,9 @@ extern void bpf_kfunc_call_test_release(struct prog_test_ref_kfunc *p) __ksym;
 extern struct bpf_key *bpf_lookup_user_key(__u32 serial, __u64 flags) __ksym;
 extern struct bpf_key *bpf_lookup_system_key(__u64 id) __ksym;
 extern void bpf_key_put(struct bpf_key *key) __ksym;
-''')
+'''
+
+KFUNCS = parse_kfunc_defs(KFUNCS_TEXT)
 
 MAPS = {
     'MAX_ENTRIES': {
@@ -1436,12 +1456,37 @@ def print_map_definitions(out, used_maps):
         print_with_deps(m)
 
 def print_kfunc_definitions(out, kfuncs):
+    fake_calls = []
+    protos = []
+    deps = set()
     for kfunc in sorted(kfuncs):
         if kfunc not in KFUNCS:
             logging.warning(f'Unknown kfunc {kfunc}')
             continue
-        out.write(KFUNCS[kfunc])
-        out.write("\n")
+        info = KFUNCS[kfunc]
+        protos.append(info.proto + '\n')
+        args = ', '.join(["0"] * info.num_args)
+        fake_calls.append(f'{kfunc}({args});')
+        deps |= info.deps
+    for dep in sorted(deps):
+        out.write(f'{dep} {{}} __attribute__((preserve_access_index));\n')
+    if deps:
+        out.write('\n')
+    for proto in protos:
+        out.write(proto)
+    out.write("\n")
+    fake_calls_text = "\n\t".join(fake_calls)
+    out.write(f'''
+/* BTF FUNC records are not generated for kfuncs referenced
+ * from inline assembly. These records are necessary for
+ * libbpf to link the program. The function below is a hack
+ * to ensure that BTF FUNC records are generated.
+ */
+void __kfunc_btf_root()
+{{
+	{fake_calls_text}
+}}
+'''.lstrip())
 
 def print_auxiliary_definitions(out, infos):
     used_maps = set()
@@ -1453,12 +1498,13 @@ def print_auxiliary_definitions(out, infos):
                 used_maps.add(map_name)
         kfuncs |= info.kfunc_pairs.keys()
 
-    if len(kfuncs) > 0:
+    if kfuncs:
         out.write("\n")
-    print_kfunc_definitions(out, kfuncs)
+        print_kfunc_definitions(out, kfuncs)
     if len(kfuncs) > 0 and len(used_maps) > 0:
         out.write("\n")
-    print_map_definitions(out, used_maps)
+    if used_maps:
+        print_map_definitions(out, used_maps)
 
 LICENSE = '''
 // SPDX-License-Identifier: GPL-2.0
