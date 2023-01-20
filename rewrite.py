@@ -3,6 +3,7 @@
 import os
 import io
 import re
+import sys
 import logging
 import argparse
 import tree_sitter
@@ -37,6 +38,12 @@ def pptree(tree):
                 recur(child, lvl + 1)
         recur(tree, 0)
         return out.getvalue()
+
+def parse_c_string(text):
+    parser = Parser()
+    parser.set_language(C_LANGUAGE)
+    tree = parser.parse(bytes(text, encoding='utf8'))
+    return tree.root_node
 
 #################################
 ##### Instructions matching #####
@@ -80,10 +87,6 @@ class CallMatcher:
             raise MatchError()
         except StopIteration:
             pass
-
-    def pending_fixup(self):
-        if not self._pending_fixup:
-            raise MatchError('not pending fixup')
 
     def _regno(self):
         arg = self._next_arg()
@@ -421,7 +424,7 @@ class InsnMatchers:
         return d('{r0} = {op}({dst} {sign} {off}, {r0}, {src});')
 
     def BPF_LD_MAP_FD(m):
-        if m._pending_fixup:
+        if type(m._pending_fixup) == MapFixup:
             dst = m.reg()
             imm = m.expr()
             insn = d('{dst} = {imm} ll;')
@@ -509,6 +512,17 @@ class InsnMatchers:
         func = m.bpf_func_ident()
         return d('call {func};')
 
+    def BPF_RAW_INSN___kfunc_call(m):
+        m.jmp_call()
+        m.zero()
+        m._next_arg().mtype('identifier').mtext('BPF_PSEUDO_KFUNC_CALL')
+        m.zero()
+        m.zero()
+        if type(m._pending_fixup) != KFuncFixup:
+            raise MatchError(f'Expecting pending kfunc fixup')
+        imm = Imm(m._pending_fixup.kfunc)
+        return d('call {imm};')
+
     def BPF_EMIT_CALL(m):
         func = m.bpf_func_ident()
         return d('call {func};')
@@ -535,6 +549,14 @@ EIGHT_BYTE_INSNS = set(
      'BPF_LDX_MEM'  , 'BPF_ST_MEM'   , 'BPF_STX_MEM'  , 'BPF_ATOMIC_OP',
      'BPF_LD_ABS'   , 'BPF_LD_IND'   , 'BPF_RAW_INSN'
     ])
+
+@dataclass
+class MapFixup:
+    pass
+
+@dataclass
+class KFuncFixup:
+    kfunc: str
 
 def convert_insn(call_node, pending_fixup):
     errors = []
@@ -627,6 +649,7 @@ class TestInfo:
         self.flags = []
         self.prog_type = None
         self.imms = {}
+        self.kfunc_pairs = {}
         self.comments = CommentsDict()
 
 def parse_test_result(node, field_name):
@@ -658,7 +681,7 @@ FLAGS_MAP = {
     'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS': 'BPF_F_ANY_ALIGNMENT',
     }
 
-def convert_insn_list(insns_to_convert, fixup_locations):
+def convert_insn_list(insns_to_convert, map_locations, kfunc_locations):
     insn_comments = []
     insns = []
     for insn in insns_to_convert:
@@ -666,7 +689,12 @@ def convert_insn_list(insns_to_convert, fixup_locations):
             insn_comments.append(insn)
         else:
             idx = len(insns)
-            pending_fixup = idx in fixup_locations
+            if idx in map_locations:
+                pending_fixup = MapFixup()
+            elif kfunc := kfunc_locations.get(idx, None):
+                pending_fixup = KFuncFixup(kfunc)
+            else:
+                pending_fixup = None
             converted = convert_insn(insn, pending_fixup)
             if type(converted) != list:
                 converted = [converted]
@@ -683,6 +711,14 @@ def convert_insn_list(insns_to_convert, fixup_locations):
     elif len(insn_comments) > 0:
         logging.warning(f'Dropping trailing comments {insn_comments} at {value}')
     return insns
+
+def parse_kfunc_pairs(initializer_list):
+    result = defaultdict(list)
+    for pair in initializer_list.named_children:
+        name = pair[0].mtype('string_literal').text.strip('"')
+        idx = int(pair[1].mtype('number_literal').text)
+        result[name].append(idx)
+    return dict(result)
 
 def match_test_info(node):
     node.mtype('initializer_list')
@@ -736,13 +772,19 @@ def match_test_info(node):
                 info.prog_type = value.mtype('identifier').text
             case 'retval':
                 info.retval = value.text
+            case 'fixup_kfunc_btf_id':
+                info.kfunc_pairs = parse_kfunc_pairs(value.mtype('initializer_list'))
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
-    fixup_locations = set()
+    map_locations = set()
     for locations in info.map_fixups.values():
-        fixup_locations |= set(locations)
-    info.insns = convert_insn_list(insns_to_convert, fixup_locations)
+        map_locations |= set(locations)
+    kfunc_locations = {}
+    for kfunc, locations in info.kfunc_pairs.items():
+        for loc in locations:
+            kfunc_locations[loc] = kfunc
+    info.insns = convert_insn_list(insns_to_convert, map_locations, kfunc_locations)
     if pending_comments:
         logging.warning(f'Dropping pending comments {pending_comments}')
     return info
@@ -1024,18 +1066,72 @@ __naked void {info.func_name}(void)
 }}
 '''
 
-def infer_extra_includes(infos):
-    includes = set()
+def infer_includes(infos):
+    extra = set()
+    vmlinux = False
+    filterh = False
     for info in infos:
+        if info.kfunc_pairs:
+            vmlinux = True
         for imm in info.imms:
             match imm.text:
                 case 'INT_MIN' | 'LLONG_MIN':
-                    includes.add('<limits.h>')
+                    extra.add('<limits.h>')
                 case 'EINVAL':
-                    includes.add('<errno.h>')
+                    extra.add('<errno.h>')
             if imm.insn:
-                includes.add('"../../../include/linux/filter.h"')
-    return sorted(includes)
+                filterh = True
+    includes = []
+    if vmlinux:
+        includes.append('<vmlinux.h>')
+    else:
+        includes.append('<linux/bpf.h>')
+    includes.append('<bpf/bpf_helpers.h>')
+    includes.extend(sorted(extra))
+    if filterh:
+        includes.append('"../../../include/linux/filter.h"')
+    includes.append('"bpf_misc.h"')
+    return includes
+
+def find_function_declarator(declaration):
+    def recur(node):
+        match node.type:
+            case 'function_declarator':
+                return node
+            case 'declaration' | 'pointer_declarator':
+                return recur(node['declarator'])
+            case _:
+                raise Exception(f'Unexpected node type: {node.type}')
+    return recur(declaration)
+
+def parse_kfunc_defs(text):
+    defs = {}
+    node = NodeWrapper(parse_c_string(text))
+    for child in node.named_children:
+        func = find_function_declarator(child)
+        name = func['declarator'].mtype('identifier').text
+        defs[name] = child.text
+    return defs
+
+KFUNCS = parse_kfunc_defs('''
+extern struct prog_test_member *bpf_kfunc_call_memb_acquire(void) __ksym;
+extern struct prog_test_ref_kfunc *
+	bpf_kfunc_call_test_acquire(unsigned long *scalar_ptr) __ksym;
+extern struct prog_test_ref_kfunc *
+	bpf_kfunc_call_test_kptr_get(struct prog_test_ref_kfunc **pp, int a, int b) __ksym;
+extern void bpf_kfunc_call_memb1_release(struct prog_test_member1 *p) __ksym;
+extern void bpf_kfunc_call_memb_release(struct prog_test_member *p) __ksym;
+extern void bpf_kfunc_call_test_fail1(struct prog_test_fail1 *p) __ksym;
+extern void bpf_kfunc_call_test_fail2(struct prog_test_fail2 *p) __ksym;
+extern void bpf_kfunc_call_test_fail3(struct prog_test_fail3 *p) __ksym;
+extern void bpf_kfunc_call_test_mem_len_fail1(void *mem, int len) __ksym;
+extern void bpf_kfunc_call_test_pass_ctx(struct __sk_buff *skb) __ksym;
+extern void bpf_kfunc_call_test_ref(struct prog_test_ref_kfunc *p) __ksym;
+extern void bpf_kfunc_call_test_release(struct prog_test_ref_kfunc *p) __ksym;
+extern struct bpf_key *bpf_lookup_user_key(__u32 serial, __u64 flags) __ksym;
+extern struct bpf_key *bpf_lookup_system_key(__u64 id) __ksym;
+extern void bpf_key_put(struct bpf_key *key) __ksym;
+''')
 
 MAPS = {
     'MAX_ENTRIES': {
@@ -1324,15 +1420,8 @@ struct {
 
 }
 
-def print_auxiliary_definitions(out, infos):
-    used_maps = []
+def print_map_definitions(out, used_maps):
     printed = set()
-
-    for info in infos:
-        for map_name, fixups in info.map_fixups.items():
-            if fixups:
-                used_maps.append(map_name)
-    used_maps = sorted(set(used_maps))
 
     def print_with_deps(name):
         if name in printed:
@@ -1343,17 +1432,36 @@ def print_auxiliary_definitions(out, infos):
             print_with_deps(dep)
         out.write(desc['text'])
 
-    for m in used_maps:
+    for m in sorted(used_maps):
         print_with_deps(m)
+
+def print_kfunc_definitions(out, kfuncs):
+    for kfunc in sorted(kfuncs):
+        if kfunc not in KFUNCS:
+            logging.warning(f'Unknown kfunc {kfunc}')
+            continue
+        out.write(KFUNCS[kfunc])
+        out.write("\n")
+
+def print_auxiliary_definitions(out, infos):
+    used_maps = set()
+    kfuncs = set()
+
+    for info in infos:
+        for map_name, fixups in info.map_fixups.items():
+            if fixups:
+                used_maps.add(map_name)
+        kfuncs |= info.kfunc_pairs.keys()
+
+    if len(kfuncs) > 0:
+        out.write("\n")
+    print_kfunc_definitions(out, kfuncs)
+    if len(kfuncs) > 0 and len(used_maps) > 0:
+        out.write("\n")
+    print_map_definitions(out, used_maps)
 
 LICENSE = '''
 // SPDX-License-Identifier: GPL-2.0
-'''.lstrip()
-
-INCLUDES = '''
-#include <linux/bpf.h>
-#include <bpf/bpf_helpers.h>
-#include "bpf_misc.h"
 '''.lstrip()
 
 @dataclass
@@ -1413,14 +1521,13 @@ Can't convert test case:
                    filter(lambda e: isinstance(e, TestCase), entries)))
     for info in infos:
         patch_test_info(info)
-    extra_includes = infer_extra_includes(infos)
+    includes = infer_includes(infos)
     assign_func_names(infos)
 
     with io.StringIO() as out:
         out.write(LICENSE)
         out.write("\n")
-        out.write(INCLUDES)
-        for include in extra_includes:
+        for include in includes:
             out.write(f'#include {include}\n')
         print_auxiliary_definitions(out, infos)
         for entry in entries:
@@ -1440,10 +1547,8 @@ Can't convert test case:
 
 def convert_string(full_text, options):
     fake_input = 'struct foo x[] = {' + "\n" + full_text + "\n" + '};'
-    parser = Parser()
-    parser.set_language(C_LANGUAGE)
-    tree = parser.parse(bytes(fake_input, encoding='utf8'))
-    return convert_translation_unit(tree.root_node, options)
+    root_node = parse_c_string(fake_input)
+    return convert_translation_unit(root_node, options)
 
 def convert_file(file_name, options):
     with open(file_name, 'r') as f:

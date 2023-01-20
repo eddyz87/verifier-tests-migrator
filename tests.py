@@ -54,8 +54,8 @@ class Tests(unittest.TestCase):
 
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
-#include "bpf_misc.h"
 #include "../../../include/linux/filter.h"
+#include "bpf_misc.h"
 
 #define MAX_ENTRIES 11
 
@@ -543,8 +543,8 @@ char _license[] SEC("license") = "GPL";
 
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
-#include "bpf_misc.h"
 #include "../../../include/linux/filter.h"
+#include "bpf_misc.h"
 
 __description("imm")
 __success __success_unpriv
