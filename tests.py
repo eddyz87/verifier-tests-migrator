@@ -1,8 +1,15 @@
 #!/usr/bin/python3
 
+import re
+import io
+import sys
+import rewrite
 import logging
 import unittest
-from rewrite import convert_string, Options
+import subprocess
+from tree_sitter_matching import *
+from cfg import build_cfg, compute_live_regs, cfg_to_dot, cfg_to_text
+from rewrite import convert_string, Options, convert_insn_list, parse_c_string
 
 class Tests(unittest.TestCase):
     def _aux(self, input, expected_output):
@@ -620,6 +627,256 @@ __naked void kfunc(void)
 }
 
 char _license[] SEC("license") = "GPL";
+''')
+
+def insns_from_string(text):
+    root = NodeWrapper(parse_c_string(f'''
+long x[] = {{
+{text}
+}}
+'''))
+    insns_list = root[0][1][1]
+    return convert_insn_list(insns_list.named_children, {}, {})
+
+def show_cfg(text):
+    insns = insns_from_string(text)
+    cfg = build_cfg(insns)
+    live_regs = compute_live_regs(insns)
+    with io.StringIO() as out:
+        cfg_to_dot(out, cfg, live_regs)
+        dot = out.getvalue()
+    cfg_to_text(sys.stdout, cfg, live_regs)
+    proc = subprocess.Popen(['bash', '-c', 'dot -Tpng | feh -'], stdin=subprocess.PIPE)
+    proc.communicate(bytes(dot, encoding='utf8'))
+
+class LiveRegTests(unittest.TestCase):
+    def _aux(self, input, expected_output):
+        insns = insns_from_string(input)
+        cfg = build_cfg(insns)
+        live_regs = compute_live_regs(insns)
+        #live_regs = [[]]*100
+        with io.StringIO() as out:
+            cfg_to_text(out, cfg, live_regs)
+            output = out.getvalue()
+        self.maxDiff = None
+        self.assertMultiLineEqual(expected_output.strip(), output.strip(),)
+
+    def test_exit_r0(self):
+        self._aux('''
+	BPF_EXIT_INSN()
+''', '''
+# 0 : exit; ; 0
+''')
+
+    def test_branch1(self):
+        self._aux('''
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 1),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_2, 2),
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_3, 0, 2),
+BPF_ALU64_REG(BPF_MOV, BPF_REG_0, BPF_REG_1),
+BPF_EXIT_INSN(),
+BPF_ALU64_REG(BPF_MOV, BPF_REG_0, BPF_REG_2),
+BPF_EXIT_INSN(),
+''', '''
+# 0 : r1 = 1;            ; 3
+  1 : r2 = 2;            ; 1, 3
+  2 : if r3 == 0 goto 2; ; 1, 2, 3
+ -> 3 5
+# 3 : r0 = r1; ; 1
+  4 : exit;    ; 0
+# 5 : r0 = r2; ; 2
+  6 : exit;    ; 0
+''')
+
+    def test_same_label1(self):
+        self._aux('''
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 1),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_2, 2),
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_3, 0, 3),
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_3, 1, 2),
+BPF_ALU64_REG(BPF_MOV, BPF_REG_0, BPF_REG_1),
+BPF_EXIT_INSN(),
+BPF_ALU64_REG(BPF_MOV, BPF_REG_0, BPF_REG_2),
+BPF_EXIT_INSN(),
+''', '''
+# 0 : r1 = 1;            ; 3
+  1 : r2 = 2;            ; 1, 3
+  2 : if r3 == 0 goto 3; ; 1, 2, 3
+ -> 3 6
+# 3 : if r3 == 1 goto 2; ; 1, 2, 3
+ -> 4 6
+# 4 : r0 = r1; ; 1
+  5 : exit;    ; 0
+# 6 : r0 = r2; ; 2
+  7 : exit;    ; 0
+''')
+
+    def test_loop1(self):
+        self._aux('''
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 10),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_2, 0),
+BPF_ALU64_REG(BPF_ADD, BPF_REG_2, BPF_REG_1),
+BPF_ALU64_IMM(BPF_SUB, BPF_REG_1, 1),
+BPF_JMP_IMM(BPF_JNE, BPF_REG_1, 0, -3),
+BPF_ALU64_REG(BPF_MOV, BPF_REG_0, BPF_REG_1),
+BPF_EXIT_INSN(),
+''', '''
+# 0 : r1 = 10;
+  1 : r2 = 0;  ; 1
+ -> 2
+# 2 : r2 += r1;           ; 1, 2
+  3 : r1 -= 1;            ; 1, 2
+  4 : if r1 != 0 goto -3; ; 1, 2
+ -> 2 5
+# 5 : r0 = r1; ; 1
+  6 : exit;    ; 0
+''')
+
+    def test_call1(self):
+        self._aux('''
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_0, 0),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 1),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_2, 2),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_3, 3),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_4, 4),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_5, 5),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_6, 6),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_7, 7),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_8, 8),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_9, 9),
+BPF_CALL_REL(6),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_0, 0),
+BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_6),
+BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_7),
+BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_8),
+BPF_ALU64_REG(BPF_ADD, BPF_REG_0, BPF_REG_9),
+BPF_EXIT_INSN(),
+// called
+BPF_EXIT_INSN(),
+''', '''
+# 0 : r0 = 0;
+  1 : r1 = 1;   ; 0
+  2 : r2 = 2;   ; 0, 1
+  3 : r3 = 3;   ; 0, 1, 2
+  4 : r4 = 4;   ; 0, 1, 2, 3
+  5 : r5 = 5;   ; 0, 1, 2, 3, 4
+  6 : r6 = 6;   ; 0, 1, 2, 3, 4, 5
+  7 : r7 = 7;   ; 0, 1, 2, 3, 4, 5, 6
+  8 : r8 = 8;   ; 0, 1, 2, 3, 4, 5, 6, 7
+  9 : r9 = 9;   ; 0, 1, 2, 3, 4, 5, 6, 7, 8
+  10: call 6;   ; 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+  11: r0 = 0;   ; 6, 7, 8, 9
+  12: r0 += r6; ; 0, 6, 7, 8, 9
+  13: r0 += r7; ; 0, 7, 8, 9
+  14: r0 += r8; ; 0, 8, 9
+  15: r0 += r9; ; 0, 9
+  16: exit;     ; 0
+# 17: exit; ; 0
+''')
+
+
+    def test_call_r0(self):
+        self._aux('''
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_6, 42),
+BPF_CALL_REL(3),
+BPF_ALU64_REG(BPF_ADD, BPF_REG_6, BPF_REG_0),
+BPF_ALU64_REG(BPF_MOV, BPF_REG_0, BPF_REG_6),
+BPF_EXIT_INSN(),
+// called
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_0, 0),
+BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 1),
+BPF_EXIT_INSN(),
+''', '''
+# 0 : r6 = 42;  ; 0, 1, 2, 3, 4, 5
+  1 : call 3;   ; 0, 1, 2, 3, 4, 5, 6
+  2 : r6 += r0; ; 0, 6
+  3 : r0 = r6;  ; 6
+  4 : exit;     ; 0
+# 5 : r0 = 0;
+  6 : r1 = 1; ; 0
+  7 : exit;   ; 0
+''')
+
+    def test_ldx_stx1(self):
+        self._aux('''
+BPF_LDX_MEM(BPF_DW, BPF_REG_1, BPF_REG_3, -8),
+BPF_STX_MEM(BPF_DW, BPF_REG_2, BPF_REG_4, -8),
+BPF_EXIT_INSN(),
+''', '''
+# 0 : r1 = *(u64*)(r3 - 8); ; 0, 2, 3, 4
+  1 : *(u64*)(r2 - 8) = r4; ; 0, 2, 4
+  2 : exit;                 ; 0
+''')
+
+class ReplaceSTMem(unittest.TestCase):
+    def _aux_st(self, input, expected_output):
+        insns = insns_from_string(input)
+        insns = rewrite.replace_st_mem(insns)
+        insns = rewrite.insert_labels(insns)
+        with io.StringIO() as out:
+            for insn in insns:
+                text = str(insn)
+                if not text.endswith(':'):
+                    out.write('\t')
+                out.write(text)
+                out.write('\n')
+            output = out.getvalue()
+        self.maxDiff = None
+        self.assertMultiLineEqual(expected_output.strip(), output.strip())
+
+    def test_simple(self):
+        self._aux_st('''
+BPF_ST_MEM(BPF_DW, BPF_REG_9, -8, 42),
+BPF_EXIT_INSN(),
+''', '''
+	r1 = 42;
+	*(u64*)(r9 - 8) = r1;
+	exit;
+''')
+
+    def test_adjust_goto(self):
+        self._aux_st('''
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 7, 1),
+BPF_ST_MEM(BPF_DW, BPF_REG_9, -8, 42),
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 17, 2),
+BPF_ST_MEM(BPF_DW, BPF_REG_9, -8, 72),
+BPF_ST_MEM(BPF_DW, BPF_REG_1, -16, 77),
+BPF_EXIT_INSN(),
+''', '''
+	if r0 == 7 goto l0_%=;
+	r2 = 42;
+	*(u64*)(r9 - 8) = r2;
+l0_%=:
+	if r0 == 17 goto l1_%=;
+	r2 = 72;
+	*(u64*)(r9 - 8) = r2;
+	r2 = 77;
+	*(u64*)(r1 - 16) = r2;
+l1_%=:
+	exit;
+''')
+
+    def test_goto_out_of_bounds(self):
+        self._aux_st('''
+BPF_ST_MEM(BPF_DW, BPF_REG_9, -8, 42),
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 17, -3),
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 14, 4),
+BPF_JMP_IMM(BPF_JEQ, BPF_REG_0, 12, 4),
+BPF_ST_MEM(BPF_DW, BPF_REG_9, -8, 72),
+BPF_ST_MEM(BPF_DW, BPF_REG_1, -16, 77),
+BPF_EXIT_INSN(),
+''', '''
+	r2 = 42;
+	*(u64*)(r9 - 8) = r2;
+	if r0 == 17 goto -4;
+	if r0 == 14 goto l0_%=;
+	if r0 == 12 goto 6;
+	r2 = 72;
+	*(u64*)(r9 - 8) = r2;
+	r2 = 77;
+	*(u64*)(r1 - 16) = r2;
+	exit;
+l0_%=:
 ''')
 
 if __name__ == '__main__':

@@ -4,6 +4,7 @@ import os
 import io
 import re
 import sys
+import cfg
 import logging
 import argparse
 import tree_sitter
@@ -274,31 +275,35 @@ class InsnMatchers:
     def BPF_MOV64_REG(m):
         dst = m.reg()
         src = m.reg()
-        return d('{dst} = {src};')
+        return d('{dst} = {src};', 'w')
 
     def BPF_ALU64_IMM(m):
         op = m.alu_op()
         dst = m.reg()
         imm = m.expr()
-        return d('{dst} {op} {imm};')
+        dst_action = 'w' if op == '=' else 'rw'
+        return d('{dst} {op} {imm};', dst_action)
 
     def BPF_ALU32_IMM(m):
         op = m.alu_op()
         dst = m.reg32()
         imm = m.expr()
-        return d('{dst} {op} {imm};')
+        dst_action = 'w' if op == '=' else 'rw'
+        return d('{dst} {op} {imm};', dst_action)
 
     def BPF_ALU64_REG(m):
         op = m.alu_op()
         dst = m.reg()
         src = m.reg()
-        return d('{dst} {op} {src};')
+        dst_action = 'w' if op == '=' else 'rw'
+        return d('{dst} {op} {src};', dst_action)
 
     def BPF_ALU32_REG(m):
         op = m.alu_op()
         dst = m.reg32()
         src = m.reg32()
-        return d('{dst} {op} {src};')
+        dst_action = 'w' if op == '=' else 'rw'
+        return d('{dst} {op} {src};', dst_action)
 
     def BPF_ALU32_IMM___BPF_NEG(m):
         m._next_arg().mtext('BPF_NEG')
@@ -306,7 +311,7 @@ class InsnMatchers:
         imm = m.number()
         if imm != 0:
             raise MatchError(f'BPF_ALU_IMM(BPF_NEG, ...) expect imm to be zero: {imm}')
-        return d('{dst} = -{dst};')
+        return d('{dst} = -{dst};', 'rw')
 
     def BPF_ALU64_IMM___BPF_NEG(m):
         m._next_arg().mtext('BPF_NEG')
@@ -314,39 +319,39 @@ class InsnMatchers:
         imm = m.number()
         if imm != 0:
             raise MatchError(f'BPF_ALU_IMM(BPF_NEG, ...) expect imm to be zero: {imm}')
-        return d('{dst} = -{dst};')
+        return d('{dst} = -{dst};', 'rw')
 
     def BPF_ALU32_REG___BPF_NEG(m):
         m._next_arg().mtext('BPF_NEG')
         dst = m.reg32()
         src = m.reg32()
-        return d('{dst} = -{src};')
+        return d('{dst} = -{src};', 'w')
 
     def BPF_ALU64_REG___BPF_NEG(m):
         m._next_arg().mtext('BPF_NEG')
         dst = m.reg()
         src = m.reg()
-        return d('{dst} = -{src};')
+        return d('{dst} = -{src};', 'w')
 
     def BPF_MOV64_IMM(m):
         dst = m.reg()
         imm = m.expr()
-        return d('{dst} = {imm};')
+        return d('{dst} = {imm};', 'w')
 
     def BPF_MOV32_IMM(m):
         dst = m.reg32()
         imm = m.expr()
-        return d('{dst} = {imm};')
+        return d('{dst} = {imm};', 'w')
 
     def BPF_MOV32_REG(m):
         dst = m.reg32()
         src = m.reg32()
-        return d('{dst} = {src};')
+        return d('{dst} = {src};', 'w')
 
     def BPF_LD_IMM64(m):
         dst = m.reg()
         imm = m.expr()
-        insn = d('{dst} = {imm} ll;')
+        insn = d('{dst} = {imm} ll;', 'w')
         insn.double_size = True
         return insn
 
@@ -355,21 +360,23 @@ class InsnMatchers:
         dst = m.reg()
         src = m.reg()
         sign, off = m.off()
-        return d('{dst} = *({sz}*)({src} {sign} {off});')
+        return d('{dst} = *({sz}*)({src} {sign} {off});', 'w')
 
     def BPF_ST_MEM(m):
         sz = m.size()
         dst = m.reg()
         sign, off = m.off()
         imm = m.expr()
-        return d('*({sz}*)({dst} {sign} {off}) = {imm};')
+        insn = d('*({sz}*)({dst} {sign} {off}) = {imm};', 'r')
+        insn.st_mem = True
+        return insn
 
     def BPF_STX_MEM(m):
         sz = m.size()
         dst = m.reg()
         src = m.reg()
         sign, off = m.off()
-        return d('*({sz}*)({dst} {sign} {off}) = {src};')
+        return d('*({sz}*)({dst} {sign} {off}) = {src};', 'r')
 
     def BPF_ATOMIC_OP(m):
         sz = m.size()
@@ -455,28 +462,28 @@ class InsnMatchers:
         dst = m.reg()
         imm = m.expr()
         goto = m.number()
-        return d('if {dst} {op} {imm} goto {goto};')
+        return d('if {dst} {op} {imm} goto {goto};', 'r')
 
     def BPF_JMP32_IMM(m):
         op = m.jmp_op()
         dst = m.reg32()
         imm = m.expr()
         goto = m.number()
-        return d('if {dst} {op} {imm} goto {goto};')
+        return d('if {dst} {op} {imm} goto {goto};', 'r')
 
     def BPF_JMP_REG(m):
         op = m.jmp_op()
         dst = m.reg()
         src = m.reg()
         goto = m.number()
-        return d('if {dst} {op} {src} goto {goto};')
+        return d('if {dst} {op} {src} goto {goto};', 'r')
 
     def BPF_JMP32_REG(m):
         op = m.jmp_op()
         dst = m.reg32()
         src = m.reg32()
         goto = m.number()
-        return d('if {dst} {op} {src} goto {goto};')
+        return d('if {dst} {op} {src} goto {goto};', 'r')
 
     def BPF_JMP_IMM___goto(m):
         m._next_arg().mtype('identifier').mtext('BPF_JA')
@@ -800,6 +807,43 @@ def patch_ld_map_fd(text, map_name, test_name):
         logging.warning(f'Unexpected insn to patch: {text} {map_name} {test_name}')
     return text
 
+def replace_st_mem(insns):
+    live_regs_map = cfg.compute_live_regs(insns)
+    index_remap = []
+    new_insns = []
+    new_idx = 0
+    #cfg.cfg_to_text(sys.stderr, cfg.build_cfg(insns), live_regs_map)
+    for old_idx, insn in enumerate(insns):
+        index_remap.append(len(new_insns))
+        live_regs = live_regs_map[old_idx]
+        if insn.st_mem and len(live_regs) < 9:
+            free_reg = next(filter(lambda r: r not in live_regs, range(0, 10)))
+            sz   = insn.vars['sz']
+            dst  = insn.vars['dst']
+            sign = insn.vars['sign']
+            off  = insn.vars['off']
+            imm  = insn.vars['imm']
+            src  = f'r{free_reg}'   # TODO: should this be 'w' ?
+            new_insns.append(d('{src} = {imm};'))
+            new_insns.append(d('*({sz}*)({dst} {sign} {off}) = {src};'))
+        else:
+            new_insns.append(insn)
+            if insn.st_mem:
+                logging.warn(f"Can't infer free register for ST_MEM at {old_idx}")
+    for old_idx, insn in enumerate(insns):
+        if 'goto' not in insn.vars:
+            continue
+        old_target = old_idx + insn.vars['goto'] + 1
+        new_idx    = index_remap[old_idx]
+        if old_target < 0:
+            new_target = old_target
+        elif old_target >= len(insns):
+            new_target = len(new_insns) + old_target - len(insns)
+        else:
+            new_target = index_remap[old_target]
+        insn.vars['goto'] = new_target - new_idx - 1
+    return new_insns
+
 def insert_labels(insns):
     targets = {}
     counter = 0
@@ -880,11 +924,13 @@ def format_imms(imm_to_name):
     imms.sort()
     return ",\n\t  ".join(imms)
 
-def patch_test_info(info):
+def patch_test_info(info, options):
     for map_name in info.map_fixups.keys():
         for i in info.map_fixups[map_name]:
             info.insns[i] = patch_ld_map_fd(info.insns[i], map_name, info.name)
     info.imms = rename_imms(info.insns)
+    if options.replace_st_mem:
+        info.insns = replace_st_mem(info.insns)
     info.insns = insert_labels(info.insns)
 
 ###############################
@@ -1513,6 +1559,7 @@ LICENSE = '''
 @dataclass
 class Options:
     newlines: bool = False
+    replace_st_mem: bool = False
     discard_prefix: str = ''
     blacklist: list = ()
 
@@ -1566,7 +1613,7 @@ Can't convert test case:
     infos=list(map(lambda e: e.info,
                    filter(lambda e: isinstance(e, TestCase), entries)))
     for info in infos:
-        patch_test_info(info)
+        patch_test_info(info, options)
     includes = infer_includes(infos)
     assign_func_names(infos)
 
@@ -1607,6 +1654,7 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--debug', action=argparse.BooleanOptionalAction)
     p.add_argument('--newlines', action=argparse.BooleanOptionalAction)
+    p.add_argument('--replace-st-mem', action=argparse.BooleanOptionalAction)
     p.add_argument('file_name', type=str)
     p.add_argument('--discard-prefix', type=str, default='')
     p.add_argument('--blacklist', action='append', default=())
@@ -1617,6 +1665,7 @@ if __name__ == '__main__':
         log_level = logging.WARNING
     logging.basicConfig(level=log_level, force=True)
     convert_file(args.file_name, Options(newlines=args.newlines,
+                                         replace_st_mem=args.replace_st_mem,
                                          discard_prefix=args.discard_prefix,
                                          blacklist=args.blacklist))
 
