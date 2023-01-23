@@ -57,8 +57,6 @@ class Tests(unittest.TestCase):
 	.flags = F_NEEDS_EFFICIENT_UNALIGNED_ACCESS,
 },
 ''', '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "../../../include/linux/filter.h"
@@ -146,8 +144,6 @@ char _license[] SEC("license") = "GPL";
 	.result = ACCEPT,
 },
 ''', '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
@@ -192,8 +188,6 @@ char _license[] SEC("license") = "GPL";
 	.result = ACCEPT,
 },
 ''', '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
@@ -244,8 +238,6 @@ char _license[] SEC("license") = "GPL";
 },
 ''',
                   '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
@@ -317,8 +309,6 @@ char _license[] SEC("license") = "GPL";
 },
 ''',
                   '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
@@ -379,8 +369,6 @@ char _license[] SEC("license") = "GPL";
 },
 ''',
                   '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
@@ -422,8 +410,6 @@ char _license[] SEC("license") = "GPL";
 { "t9", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_LSM },
 ''',
                   '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
@@ -546,8 +532,6 @@ char _license[] SEC("license") = "GPL";
 },
 ''',
                   '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "../../../include/linux/filter.h"
@@ -588,8 +572,6 @@ char _license[] SEC("license") = "GPL";
 },
 ''',
                   '''
-// SPDX-License-Identifier: GPL-2.0
-
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"

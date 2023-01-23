@@ -1552,10 +1552,6 @@ def print_auxiliary_definitions(out, infos):
     if used_maps:
         print_map_definitions(out, used_maps)
 
-LICENSE = '''
-// SPDX-License-Identifier: GPL-2.0
-'''.lstrip()
-
 @dataclass
 class Options:
     newlines: bool = False
@@ -1618,8 +1614,6 @@ Can't convert test case:
     assign_func_names(infos)
 
     with io.StringIO() as out:
-        out.write(LICENSE)
-        out.write("\n")
         for include in includes:
             out.write(f'#include {include}\n')
         print_auxiliary_definitions(out, infos)
@@ -1646,8 +1640,9 @@ def convert_string(full_text, options):
 def convert_file(file_name, options):
     with open(file_name, 'r') as f:
         short_name = file_name.removeprefix(options.discard_prefix)
+        print( '// SPDX-License-Identifier: GPL-2.0')
         print(f'/* Converted from {short_name} */')
-        print('/* Use test_loader marker */')
+        print( '/* Use test_loader marker */')
         print(convert_string(f.read(), options))
 
 if __name__ == '__main__':
