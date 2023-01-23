@@ -1071,6 +1071,7 @@ def convert_prog_type(text):
     return SEC_BY_PROG_TYPE[text]
 
 def mk_func_base_name(text):
+    text = text.lower()
     text = re.sub(r'[^\d\w]+', '_', text)
     text = text.strip('_')
     parts = text.split('_')[-5:]
