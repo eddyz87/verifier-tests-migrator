@@ -611,6 +611,40 @@ __naked void kfunc(void)
 char _license[] SEC("license") = "GPL";
 ''')
 
+    def test_macro1(self):
+        self._aux('''
+{
+	"macro",
+	.insns = {
+	BPF_LDX_MEM(BPF_W, BPF_REG_0, BPF_REG_1,
+		    offsetofend(struct __sk_buff, gso_size)),
+	},
+	.result = ACCEPT,
+},
+''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+#define sizeof_field(TYPE, MEMBER) sizeof((((TYPE *)0)->MEMBER))
+#define offsetofend(TYPE, MEMBER) \\
+	(offsetof(TYPE, MEMBER)	+ sizeof_field(TYPE, MEMBER))
+
+__description("macro")
+__success __success_unpriv
+SEC("socket")
+__naked void macro(void)
+{
+	asm volatile (
+"	r0 = *(u32*)(r1 + %[__sk_buff_gso_size_end_offset]);\\
+"	:
+	: [__sk_buff_gso_size_end_offset]"i"(offsetofend(struct __sk_buff, gso_size))
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";
+''')
+
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
 long x[] = {{

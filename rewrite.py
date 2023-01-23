@@ -884,8 +884,12 @@ def guess_imm_basename(imm):
         return m[1], False
     if m := re.match(r'^&([\w\d]+)$', text):
         return m[1], False
-    if m := re.match(r'^offsetof\(struct ([\w\d]+), ([\w\d]+)\)$', text):
-        return f'{m[1]}_{m[2]}_offset', False
+    if m := re.match(r'^(offsetof|offsetofend)\(struct ([\w\d]+), ([\w\d]+)\)$', text):
+        if m[1] == 'offsetof':
+            suffix = 'offset'
+        else:
+            suffix = 'end_offset'
+        return f'{m[2]}_{m[3]}_{suffix}', False
     return '__imm', True
 
 def gen_imm_name(imm, counters):
@@ -1148,6 +1152,19 @@ def infer_includes(infos):
         includes.append('"../../../include/linux/filter.h"')
     includes.append('"bpf_misc.h"')
     return includes
+
+def infer_macros(infos):
+    macros = set()
+    for info in infos:
+        for imm in info.imms:
+            if imm.text.find('offsetofend') >= 0:
+                macros.add('''
+#define sizeof_field(TYPE, MEMBER) sizeof((((TYPE *)0)->MEMBER))
+#define offsetofend(TYPE, MEMBER) \\
+	(offsetof(TYPE, MEMBER)	+ sizeof_field(TYPE, MEMBER))
+'''.lstrip())
+    return list(sorted(macros))
+
 
 def find_function_declarator(declaration):
     def recur(node):
@@ -1627,11 +1644,16 @@ Can't convert test case:
     for info in infos:
         patch_test_info(info, options)
     includes = infer_includes(infos)
+    macros = infer_macros(infos)
     assign_func_names(infos)
 
     with io.StringIO() as out:
         for include in includes:
             out.write(f'#include {include}\n')
+        if macros:
+            out.write('\n')
+        for macro in macros:
+            out.write(macro)
         print_auxiliary_definitions(out, infos)
         for entry in entries:
             match entry:
