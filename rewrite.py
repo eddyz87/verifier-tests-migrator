@@ -826,6 +826,7 @@ def replace_st_mem(insns):
             src  = f'r{free_reg}'   # TODO: should this be 'w' ?
             new_insns.append(d('{src} = {imm};'))
             new_insns.append(d('*({sz}*)({dst} {sign} {off}) = {src};'))
+            new_insns[0].comment = '/* CHECK ME: converted BPF_ST */'
         else:
             new_insns.append(insn)
             if insn.st_mem:
