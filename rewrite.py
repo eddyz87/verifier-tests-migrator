@@ -1188,7 +1188,9 @@ def scan_struct_deps(root_node):
     def recur(node):
         match node.type:
             case 'struct_specifier':
-                deps.add(f'struct {node["name"].text}')
+                name = node["name"].text
+                if name not in ['__sk_buff']:
+                    deps.add(f'struct {name}')
             case _:
                 for ch in node.named_children:
                     recur(ch)
@@ -1357,8 +1359,8 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_REUSEPORT_SOCKARRAY);
 	__uint(max_entries, 1);
-	__type(key, u32);
-	__type(value, u64);
+	__type(key, __u32);
+	__type(value, __u64);
 } map_reuseport_array SEC(".maps");
 '''},
 
@@ -1399,8 +1401,8 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_STACK_TRACE);
 	__uint(max_entries, 1);
-	__type(key, u32);
-	__type(value, u64);
+	__type(key, __u32);
+	__type(value, __u64);
 } map_stacktrace SEC(".maps");
 '''},
 
@@ -1413,7 +1415,7 @@ struct {
 	__type(key, int);
 	__type(value, struct test_val);
 	__uint(map_flags, BPF_F_RDONLY_PROG);
-} map_stacktrace SEC(".maps");
+} map_array_ro SEC(".maps");
 '''},
 
     'map_array_wo': {
@@ -1425,7 +1427,7 @@ struct {
 	__type(key, int);
 	__type(value, struct test_val);
 	__uint(map_flags, BPF_F_WRONLY_PROG);
-} map_stacktrace SEC(".maps");
+} map_array_wo SEC(".maps");
 '''},
 
     'val': {
@@ -1443,16 +1445,6 @@ struct val {
 struct timer {
 	struct bpf_timer t;
 };
-'''},
-
-    'btf_ptr': {
-        'deps': [],
-        'text': '''
-struct btf_ptr {
-	struct prog_test_ref_kfunc __kptr *ptr;
-	struct prog_test_ref_kfunc __kptr_ref *ptr;
-	struct prog_test_member __kptr_ref *ptr;
-}
 '''},
 
     'map_spin_lock': {
@@ -1507,7 +1499,7 @@ struct {
 '''},
 
     'map_kptr': {
-        'deps': ['btf_ptr'],
+        'deps': [],
         'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
