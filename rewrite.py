@@ -1667,7 +1667,8 @@ if __name__ == '__main__':
     p.add_argument('--replace-st-mem', action=argparse.BooleanOptionalAction)
     p.add_argument('file_name', type=str)
     p.add_argument('--discard-prefix', type=str, default='')
-    p.add_argument('--blacklist', action='append', default=())
+    blacklist = []
+    p.add_argument('--blacklist', action='append', default=blacklist)
     args = p.parse_args()
     if args.debug:
         log_level = logging.DEBUG
