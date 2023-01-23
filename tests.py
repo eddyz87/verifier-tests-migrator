@@ -87,35 +87,35 @@ SEC("socket")
 __naked void invalid_and_of_negative_number(void)
 {
 	asm volatile (
-	"*(u64*)(r10 - 8) = 0;"
-	"r2 = r10;"
-	"r2 += %[__imm_0];"
-	"r1 = %[map_hash_48b] ll;"
-	"call %[bpf_map_lookup_elem];"
-	"if r0 == 0 goto l0_%=;"
-	"r1 = *(u8*)(r0 + 0);"
-"l0_%=:"
-	"r1 &= -4;"
-	"r1 <<= 2;"
-	"r1 %%= 2;"
-	"r1 |= 2;"
-	"r0 += r1;"
-	"r1 = -r1;"
-	"w1 = -w1;"
-	"r2 = -r2;"
-	"w2 = -w2;"
-	// invalid LD_MAP_FD (it is not patched)
-	".8byte %[ld_map_fd];"
-	".8byte 0;"
-	".8byte %[ld_map_fd_1];"
-	".8byte 0;"
-	// comment
-	"*(u64*)(r0 + 0) = %[test_val_foo_offset];"
-	"call l1_%=;"
-	"exit;"
-"l1_%=:"
-	"exit;"
-	:
+"	*(u64*)(r10 - 8) = 0;				\\
+	r2 = r10;					\\
+	r2 += %[__imm_0];				\\
+	r1 = %[map_hash_48b] ll;			\\
+	call %[bpf_map_lookup_elem];			\\
+	if r0 == 0 goto l0_%=;				\\
+	r1 = *(u8*)(r0 + 0);				\\
+l0_%=:							\\
+	r1 &= -4;					\\
+	r1 <<= 2;					\\
+	r1 %%= 2;					\\
+	r1 |= 2;					\\
+	r0 += r1;					\\
+	r1 = -r1;					\\
+	w1 = -w1;					\\
+	r2 = -r2;					\\
+	w2 = -w2;					\\
+	// invalid LD_MAP_FD (it is not patched)	\\
+	.8byte %[ld_map_fd];				\\
+	.8byte 0;					\\
+	.8byte %[ld_map_fd_1];				\\
+	.8byte 0;					\\
+	// comment					\\
+	*(u64*)(r0 + 0) = %[test_val_foo_offset];	\\
+	call l1_%=;					\\
+	exit;						\\
+l1_%=:							\\
+	exit;						\\
+"	:
 	: [__imm_0]"i"(-8 + 2),
 	  [test_val_foo_offset]"i"(offsetof(struct test_val, foo)),
 	  __imm(bpf_map_lookup_elem),
@@ -161,13 +161,13 @@ SEC("socket")
 __naked void dsize(void)
 {
 	asm volatile (
-	"r1 = %[map_hash_8b] ll;"
-	"exit;"
-	"r1 = %[map_hash_8b] ll;"
-	"exit;"
-	"r1 = %[map_hash_8b] ll;"
-	"exit;"
-	:
+"	r1 = %[map_hash_8b] ll;				\\
+	exit;						\\
+	r1 = %[map_hash_8b] ll;				\\
+	exit;						\\
+	r1 = %[map_hash_8b] ll;				\\
+	exit;						\\
+"	:
 	: __imm_addr(map_hash_8b)
 	: __clobber_all);
 }
@@ -198,12 +198,12 @@ SEC("socket")
 __naked void dsize2(void)
 {
 	asm volatile (
-"l0_%=:"
-	"r1 = 0 ll;"
-	"goto l0_%=;"
-	"r1 = 0 ll;"
-	"goto l0_%=;"
-	:
+"l0_%=:							\\
+	r1 = 0 ll;					\\
+	goto l0_%=;					\\
+	r1 = 0 ll;					\\
+	goto l0_%=;					\\
+"	:
 	:
 	: __clobber_all);
 }
@@ -248,24 +248,24 @@ SEC("socket")
 __naked void atomic(void)
 {
 	asm volatile (
-	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);"
-	"r2 = atomic_fetch_and((u64 *)(r10 - 8), r2);"
-	//
-	"w3 = atomic_fetch_or((u32 *)(r10 - 8), w3);"
-	"w4 = atomic_fetch_xor((u32 *)(r10 - 8), w4);"
-	//
-	"lock *(u32 *)(r10 - 16) += w1;"
-	"lock *(u32 *)(r10 - 16) &= w2;"
-	//
-	"lock *(u64 *)(r10 - 16) |= r3;"
-	"lock *(u64 *)(r10 - 16) ^= r4;"
-	//
-	"r1 = xchg_64(r10 - 8, r1);"
-	"w1 = xchg32_32(w10 - 4, w1);"
-	//
-	"r0 = cmpxchg_64(r10 - 8, r0, r1);"
-	"w0 = cmpxchg32_32(r10 - 4, w0, w1);"
-	:
+"	r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);	\\
+	r2 = atomic_fetch_and((u64 *)(r10 - 8), r2);	\\
+	//						\\
+	w3 = atomic_fetch_or((u32 *)(r10 - 8), w3);	\\
+	w4 = atomic_fetch_xor((u32 *)(r10 - 8), w4);	\\
+	//						\\
+	lock *(u32 *)(r10 - 16) += w1;			\\
+	lock *(u32 *)(r10 - 16) &= w2;			\\
+	//						\\
+	lock *(u64 *)(r10 - 16) |= r3;			\\
+	lock *(u64 *)(r10 - 16) ^= r4;			\\
+	//						\\
+	r1 = xchg_64(r10 - 8, r1);			\\
+	w1 = xchg32_32(w10 - 4, w1);			\\
+	//						\\
+	r0 = cmpxchg_64(r10 - 8, r0, r1);		\\
+	w0 = cmpxchg32_32(r10 - 4, w0, w1);		\\
+"	:
 	:
 	: __clobber_all);
 }
@@ -337,12 +337,12 @@ __naked void atomic(void)
 	/* 1b */ /* 2b */
 	/* 3b */
 	asm volatile (
-	/* 1c */ /* 2c */
-	/* 3c */
-	"r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);"
-	/* 1d */ /* 2d */
-	/* 3d */
-	:
+"	/* 1c */ /* 2c */				\\
+	/* 3c */					\\
+	r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);	\\
+	/* 1d */ /* 2d */				\\
+	/* 3d */					\\
+"	:
 	:
 	: __clobber_all);
 }
@@ -379,16 +379,16 @@ SEC("socket")
 __naked void imm(void)
 {
 	asm volatile (
-	"r0 = *(u64*)(r1 + %[foo_bar_offset]);"
-	"r0 = *(u64*)(r1 - %[foo_bar_offset]);"
-	"r0 = *(u64*)(r1 + 42);"
-	"r0 = *(u64*)(r1 - 7);"
-	"*(u64*)(r0 - %[foo]) = -8;"
-	"*(u64*)(r0 - %[foo]) = r1;"
-	"lock *(u64 *)(r10 - %[foo]) |= r3;"
-	"r1 = xchg_64(r10 - %[foo], r1);"
-	"r0 = cmpxchg_64(r10 - %[foo], r0, r1);"
-	:
+"	r0 = *(u64*)(r1 + %[foo_bar_offset]);		\\
+	r0 = *(u64*)(r1 - %[foo_bar_offset]);		\\
+	r0 = *(u64*)(r1 + 42);				\\
+	r0 = *(u64*)(r1 - 7);				\\
+	*(u64*)(r0 - %[foo]) = -8;			\\
+	*(u64*)(r0 - %[foo]) = r1;			\\
+	lock *(u64 *)(r10 - %[foo]) |= r3;		\\
+	r1 = xchg_64(r10 - %[foo], r1);			\\
+	r0 = cmpxchg_64(r10 - %[foo], r0, r1);		\\
+"	:
 	: [foo_bar_offset]"i"(offsetof(struct foo, bar)),
 	  __imm(foo)
 	: __clobber_all);
@@ -543,10 +543,10 @@ SEC("socket")
 __naked void imm(void)
 {
 	asm volatile (
-	".8byte %[alu64_imm];"
-	".8byte %[alu64_reg];"
-	"NOT CONVERTED: BPF_LD_IMM64()"
-	:
+"	.8byte %[alu64_imm];				\\
+	.8byte %[alu64_reg];				\\
+	NOT CONVERTED: BPF_LD_IMM64()			\\
+"	:
 	: __imm_insn(alu64_imm, BPF_ALU64_IMM(12)),
 	  __imm_insn(alu64_reg, BPF_ALU64_REG(CAPIBARA, BPF_REG_1, BPF_REG_2))
 	: __clobber_all);
@@ -599,10 +599,10 @@ SEC("socket")
 __naked void kfunc(void)
 {
 	asm volatile (
-	"call %[bpf_kfunc_call_test_acquire];"
-	"call %[bpf_kfunc_call_test_release];"
-	"exit;"
-	:
+"	call %[bpf_kfunc_call_test_acquire];		\\
+	call %[bpf_kfunc_call_test_release];		\\
+	exit;						\\
+"	:
 	: __imm(bpf_kfunc_call_test_acquire),
 	  __imm(bpf_kfunc_call_test_release)
 	: __clobber_all);

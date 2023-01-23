@@ -937,32 +937,46 @@ def patch_test_info(info, options):
 ##### C code generation   #####
 ###############################
 
-def enquote(text):
+def escape(text):
     # TODO: anything else to escape?
     escaped = text.replace('"', '\"')
-    return f'"{escaped}"'
+    return escaped
+
+ASM_LINE_WIDTH_IN_TABS = 7
+
+def add_padding(text, num_tabs=ASM_LINE_WIDTH_IN_TABS):
+    width_in_tabs = len(text.replace('\t', ' '*8)) // 8
+    return text + '\t'*(num_tabs - width_in_tabs)
 
 def format_insns(insns, newlines):
     if len(insns) == 0:
-        return '""'
+        return ''
+
+    line_ending = ''
+    if newlines:
+        line_ending += '\\n'
+    line_ending += '\\\n'
+
+    def write_comment(text):
+        if not text:
+            return
+        for line in text.split('\n'):
+            line = '\t' + line.strip()
+            out.write(add_padding(line))
+            out.write(line_ending)
+
     with io.StringIO() as out:
         for i, insn in enumerate(insns):
             if getattr(insn, 'dummy', False):
                 continue
-            if c := getattr(insn, 'comment', None):
-                out.write('\t')
-                out.write(reindent_comment(c, 1, False))
-            text = str(insn)
+            write_comment(getattr(insn, 'comment', None))
+            text = escape(str(insn))
             if not text.endswith(':'):
-                out.write('\t')
-            if newlines:
-                out.write(enquote(f'{text}\\n'))
-            else:
-                out.write(enquote(text))
-            out.write("\n")
-            if c := getattr(insn, 'after_comment', None):
-                out.write('\t')
-                out.write(reindent_comment(c, 1, False))
+                text = '\t' + text
+            text = add_padding(text)
+            out.write(text)
+            out.write(line_ending)
+            write_comment(getattr(insn, 'after_comment', None))
         return out.getvalue()
 
 def collect_attrs(info):
@@ -1107,7 +1121,7 @@ SEC("{sec}")
 __naked void {info.func_name}(void)
 {{
 	{insns_comments}asm volatile (
-{insn_text}	:
+"{insn_text}"	:
 	:{imms_text}
 	: __clobber_all);
 }}
