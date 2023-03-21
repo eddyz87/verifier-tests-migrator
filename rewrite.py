@@ -1133,6 +1133,11 @@ def assign_func_names(infos):
                 info.func_name = f'{name}_{i+1}'
 
 def render_test_info(info, options):
+    if name_comment := info.comments.get('name', None):
+        initial_comment = reindent_comment(name_comment, 0)
+        info.comments['name'] = None
+    else:
+        initial_comment = ''
     attrs = collect_attrs(info)
     insns_comments = reindent_comment(info.comments['insns'], 1)
     insn_text = format_insns(info.insns, options.newlines)
@@ -1142,8 +1147,8 @@ def render_test_info(info, options):
         imms_text = ' ' + imms_text
 
     return f'''
+{initial_comment}SEC("{sec}")
 {render_attrs(attrs)}
-SEC("{sec}")
 __naked void {info.func_name}(void)
 {{
 	{insns_comments}asm volatile (

@@ -79,11 +79,11 @@ struct {
 /* some
  * comment
  */
+SEC("socket")
 __description("invalid and of negative number")
 __failure __msg("R0 max value is outside of the allowed memory range")
 __msg_unpriv("abra-cadabra")
 __flag(BPF_F_ANY_ALIGNMENT)
-SEC("socket")
 __naked void invalid_and_of_negative_number(void)
 {
 	asm volatile (
@@ -155,10 +155,10 @@ struct {
 	__type(value, long long);
 } map_hash_8b SEC(".maps");
 
+SEC("socket")
 __description("dsize")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void dsize(void)
 {
 	asm volatile (
@@ -193,10 +193,10 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
+SEC("socket")
 __description("dsize2")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void dsize2(void)
 {
 	asm volatile (
@@ -244,10 +244,10 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
+SEC("socket")
 __description("atomic")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void atomic(void)
 {
 	asm volatile (
@@ -318,6 +318,7 @@ char _license[] SEC("license") = "GPL";
 
 /* 1a */ /* 2a */
 /* 3a */
+SEC("socket")
 __description("atomic")
 /* 1e */ /* 2e */
 /* 3e */
@@ -337,7 +338,6 @@ __retval(1)
 /* 1j */ /* 2j */
 /* 3j */
 __flag(BPF_F_ANY_ALIGNMENT)
-SEC("socket")
 __naked void atomic(void)
 {
 	/* 1b */ /* 2b */
@@ -379,9 +379,9 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
+SEC("socket")
 __description("imm")
 __failure __failure_unpriv
-SEC("socket")
 __naked void imm(void)
 {
 	asm volatile (
@@ -420,9 +420,9 @@ char _license[] SEC("license") = "GPL";
 #include <bpf/bpf_helpers.h>
 #include "bpf_misc.h"
 
+SEC("socket")
 __description("t1")
 __failure __failure_unpriv
-SEC("socket")
 __naked void t1(void)
 {
 	asm volatile (
@@ -431,10 +431,10 @@ __naked void t1(void)
 	: __clobber_all);
 }
 
+SEC("socket")
 __description("t2")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void t2(void)
 {
 	asm volatile (
@@ -443,10 +443,10 @@ __naked void t2(void)
 	: __clobber_all);
 }
 
+SEC("socket")
 __description("t3")
 __success __success_unpriv
 __log_level(2) __retval(0)
-SEC("socket")
 __naked void t3(void)
 {
 	asm volatile (
@@ -455,9 +455,9 @@ __naked void t3(void)
 	: __clobber_all);
 }
 
+SEC("socket")
 __description("t4")
 __failure __failure_unpriv
-SEC("socket")
 __naked void t4(void)
 {
 	asm volatile (
@@ -466,11 +466,11 @@ __naked void t4(void)
 	: __clobber_all);
 }
 
+SEC("socket")
 __description("t5")
 __success __msg("x")
 __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void t5(void)
 {
 	asm volatile (
@@ -479,11 +479,11 @@ __naked void t5(void)
 	: __clobber_all);
 }
 
+SEC("socket")
 __description("t6")
 __success __msg("x")
 __failure_unpriv __msg_unpriv("y")
 __retval(0)
-SEC("socket")
 __naked void t6(void)
 {
 	asm volatile (
@@ -492,10 +492,10 @@ __naked void t6(void)
 	: __clobber_all);
 }
 
+SEC("socket")
 __description("t7")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void t7(void)
 {
 	asm volatile (
@@ -504,10 +504,10 @@ __naked void t7(void)
 	: __clobber_all);
 }
 
+SEC("cgroup/skb")
 __description("t8")
 __success __success_unpriv
 __retval(0)
-SEC("cgroup/skb")
 __naked void t8(void)
 {
 	asm volatile (
@@ -516,9 +516,9 @@ __naked void t8(void)
 	: __clobber_all);
 }
 
+SEC("lsm")
 __description("t9")
 __success
-SEC("lsm")
 __naked void t9(void)
 {
 	asm volatile (
@@ -548,10 +548,10 @@ char _license[] SEC("license") = "GPL";
 #include "../../../include/linux/filter.h"
 #include "bpf_misc.h"
 
+SEC("socket")
 __description("imm")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void imm(void)
 {
 	asm volatile (
@@ -605,10 +605,10 @@ void __kfunc_btf_root()
 	bpf_kfunc_call_test_release(0);
 }
 
+SEC("socket")
 __description("kfunc")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void kfunc(void)
 {
 	asm volatile (
@@ -643,10 +643,10 @@ char _license[] SEC("license") = "GPL";
 #define offsetofend(TYPE, MEMBER) \\
 	(offsetof(TYPE, MEMBER)	+ sizeof_field(TYPE, MEMBER))
 
+SEC("socket")
 __description("macro")
 __success __success_unpriv
 __retval(0)
-SEC("socket")
 __naked void macro(void)
 {
 	asm volatile (
