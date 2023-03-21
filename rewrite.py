@@ -928,7 +928,7 @@ def format_imms(imm_to_name):
         elif text == f'&{name}':
             imms.append(f'__imm_addr({name})')
         else:
-            imms.append(f'[{name}]"i"({text})')
+            imms.append(f'__imm_const({name}, {text})')
     imms.sort()
     return ",\n\t  ".join(imms)
 

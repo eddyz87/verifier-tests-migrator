@@ -116,10 +116,10 @@ l0_%=:							\\
 l1_%=:							\\
 	exit;						\\
 "	:
-	: [__imm_0]"i"(-8 + 2),
-	  [test_val_foo_offset]"i"(offsetof(struct test_val, foo)),
-	  __imm(bpf_map_lookup_elem),
+	: __imm(bpf_map_lookup_elem),
 	  __imm_addr(map_hash_48b),
+	  __imm_const(__imm_0, -8 + 2),
+	  __imm_const(test_val_foo_offset, offsetof(struct test_val, foo)),
 	  __imm_insn(ld_map_fd, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_7, BPF_PSEUDO_MAP_FD, 0, 32)),
 	  __imm_insn(ld_map_fd_1, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_8, BPF_PSEUDO_MAP_FD, 0, 42))
 	: __clobber_all);
@@ -395,8 +395,8 @@ __naked void imm(void)
 	r1 = xchg_64(r10 - %[foo], r1);			\\
 	r0 = cmpxchg_64(r10 - %[foo], r0, r1);		\\
 "	:
-	: [foo_bar_offset]"i"(offsetof(struct foo, bar)),
-	  __imm(foo)
+	: __imm(foo),
+	  __imm_const(foo_bar_offset, offsetof(struct foo, bar))
 	: __clobber_all);
 }
 
@@ -652,7 +652,7 @@ __naked void macro(void)
 	asm volatile ("
 	r0 = *(u32*)(r1 + %[__sk_buff_gso_size_end_offset]);\\
 "	:
-	: [__sk_buff_gso_size_end_offset]"i"(offsetofend(struct __sk_buff, gso_size))
+	: __imm_const(__sk_buff_gso_size_end_offset, offsetofend(struct __sk_buff, gso_size))
 	: __clobber_all);
 }
 
