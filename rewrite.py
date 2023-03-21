@@ -1148,6 +1148,7 @@ def render_test_info(info, options):
         info.comments['name'] = None
     else:
         initial_comment = ''
+    asm_volatile=add_padding('asm volatile ("', 6) + '\\'
     attrs = collect_attrs(info)
     insns_comments = reindent_comment(info.comments['insns'], 1)
     insn_text = format_insns(info.insns, options.newlines)
@@ -1161,7 +1162,7 @@ def render_test_info(info, options):
 {render_attrs(attrs)}
 __naked void {info.func_name}(void)
 {{
-	{insns_comments}asm volatile ("
+	{insns_comments}{asm_volatile}
 {insn_text}"	:
 	:{imms_text}
 	: __clobber_all);

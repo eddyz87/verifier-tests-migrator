@@ -86,7 +86,7 @@ __msg_unpriv("abra-cadabra")
 __flag(BPF_F_ANY_ALIGNMENT)
 __naked void invalid_and_of_negative_number(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	*(u64*)(r10 - 8) = 0;				\\
 	r2 = r10;					\\
 	r2 += %[__imm_0];				\\
@@ -159,7 +159,7 @@ __success __success_unpriv
 __retval(0)
 __naked void dsize(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	r1 = %[map_hash_8b] ll;				\\
 	exit;						\\
 	r1 = %[map_hash_8b] ll;				\\
@@ -197,7 +197,7 @@ __success __success_unpriv
 __retval(0)
 __naked void dsize2(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 l0_%=:	r1 = 0 ll;					\\
 	goto l0_%=;					\\
 	r1 = 0 ll;					\\
@@ -231,7 +231,7 @@ __success __success_unpriv
 __retval(0)
 __naked void dsize2(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	r0 = r0;					\\
 l100_%=:						\\
 	goto l100_%=;					\\
@@ -280,7 +280,7 @@ __success __success_unpriv
 __retval(0)
 __naked void atomic(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);	\\
 	r2 = atomic_fetch_and((u64 *)(r10 - 8), r2);	\\
 	//						\\
@@ -372,7 +372,7 @@ __naked void atomic(void)
 {
 	/* 1b */ /* 2b */
 	/* 3b */
-	asm volatile ("
+	asm volatile ("					\\
 	/* 1c */ /* 2c */				\\
 	/* 3c */					\\
 	r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);	\\
@@ -414,7 +414,7 @@ __description("imm")
 __failure __failure_unpriv
 __naked void imm(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	r0 = *(u64*)(r1 + %[foo_bar_offset]);		\\
 	r0 = *(u64*)(r1 - %[foo_bar_offset]);		\\
 	r0 = *(u64*)(r1 + 42);				\\
@@ -455,7 +455,7 @@ __description("t1")
 __failure __failure_unpriv
 __naked void t1(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -467,7 +467,7 @@ __success __success_unpriv
 __retval(0)
 __naked void t2(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -479,7 +479,7 @@ __success __success_unpriv
 __log_level(2) __retval(0)
 __naked void t3(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -490,7 +490,7 @@ __description("t4")
 __failure __failure_unpriv
 __naked void t4(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -503,7 +503,7 @@ __success_unpriv
 __retval(0)
 __naked void t5(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -516,7 +516,7 @@ __failure_unpriv __msg_unpriv("y")
 __retval(0)
 __naked void t6(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -528,7 +528,7 @@ __success __success_unpriv
 __retval(0)
 __naked void t7(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -540,7 +540,7 @@ __success __success_unpriv
 __retval(0)
 __naked void t8(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -551,7 +551,7 @@ __description("t9")
 __success
 __naked void t9(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 "	:
 	:
 	: __clobber_all);
@@ -584,7 +584,7 @@ __success __success_unpriv
 __retval(0)
 __naked void imm(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	.8byte %[alu64_imm];				\\
 	.8byte %[alu64_reg];				\\
 	NOT CONVERTED: BPF_LD_IMM64()			\\
@@ -641,7 +641,7 @@ __success __success_unpriv
 __retval(0)
 __naked void kfunc(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	call %[bpf_kfunc_call_test_acquire];		\\
 	call %[bpf_kfunc_call_test_release];		\\
 	exit;						\\
@@ -679,7 +679,7 @@ __success __success_unpriv
 __retval(0)
 __naked void macro(void)
 {
-	asm volatile ("
+	asm volatile ("					\\
 	r0 = *(u32*)(r1 + %[__sk_buff_gso_size_end_offset]);\\
 "	:
 	: __imm_const(__sk_buff_gso_size_end_offset, offsetofend(struct __sk_buff, gso_size))
