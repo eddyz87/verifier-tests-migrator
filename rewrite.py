@@ -1151,8 +1151,8 @@ def render_test_info(info, options):
 {render_attrs(attrs)}
 __naked void {info.func_name}(void)
 {{
-	{insns_comments}asm volatile (
-"{insn_text}"	:
+	{insns_comments}asm volatile ("
+{insn_text}"	:
 	:{imms_text}
 	: __clobber_all);
 }}
