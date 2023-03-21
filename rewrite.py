@@ -653,6 +653,7 @@ class TestInfo:
         self.errstr = None
         self.errstr_unpriv = None
         self.retval = None
+        self.retval_unpriv = None
         self.flags = []
         self.prog_type = None
         self.imms = {}
@@ -779,6 +780,8 @@ def match_test_info(node):
                 info.prog_type = value.mtype('identifier').text
             case 'retval':
                 info.retval = value.text
+            case 'retval_unpriv':
+                info.retval_unpriv = value.text
             case 'fixup_kfunc_btf_id':
                 info.kfunc_pairs = parse_kfunc_pairs(value.mtype('initializer_list'))
             case _:
@@ -929,6 +932,17 @@ def format_imms(imm_to_name):
     imms.sort()
     return ",\n\t  ".join(imms)
 
+EXECUTABLE_PROG_TYPES = set([
+    'BPF_PROG_TYPE_CGROUP_SKB'     , 'BPF_PROG_TYPE_FLOW_DISSECTOR',
+    'BPF_PROG_TYPE_LWT_IN'         , 'BPF_PROG_TYPE_LWT_OUT',
+    'BPF_PROG_TYPE_LWT_SEG6LOCAL'  , 'BPF_PROG_TYPE_LWT_XMIT',
+    'BPF_PROG_TYPE_RAW_TRACEPOINT' , 'BPF_PROG_TYPE_SCHED_ACT',
+    'BPF_PROG_TYPE_SCHED_CLS'      , 'BPF_PROG_TYPE_SK_LOOKUP',
+    'BPF_PROG_TYPE_SOCKET_FILTER'  , 'BPF_PROG_TYPE_STRUCT_OPS',
+    'BPF_PROG_TYPE_SYSCALL'        , 'BPF_PROG_TYPE_TRACING',
+    'BPF_PROG_TYPE_XDP',
+])
+
 def patch_test_info(info, options):
     for map_name in info.map_fixups.keys():
         for i in info.map_fixups[map_name]:
@@ -937,6 +951,12 @@ def patch_test_info(info, options):
     if options.replace_st_mem:
         info.insns = replace_st_mem(info.insns)
     info.insns = insert_labels(info.insns)
+    if (not info.retval
+        and info.result in [Verdict.ACCEPT, Verdict.VERBOSE_ACCEPT]
+        and (info.prog_type in EXECUTABLE_PROG_TYPES
+           # Default prog type is 'socket' which is executable
+           or info.prog_type is None)):
+        info.retval = '0'
 
 ###############################
 ##### C code generation   #####
@@ -1027,7 +1047,8 @@ def collect_attrs(info):
         if Verdict.ACCEPT in [info.result, info.result_unpriv]:
             logging.warning(f'Log level differs between priv and unpriv for {info.name}')
         attrs.append('__log_level(2)')
-    #attr('retval'       , lambda retval: f'__retval({retval})')
+    attr('retval'       , lambda retval: f'__retval({retval})')
+    attr('retval_unpriv', lambda retval: f'__retval_unpriv({retval})')
     attr('flags'        , lambda flags : list(map(lambda flag: f'__flag({flag})', flags)))
 
     return attrs

@@ -157,6 +157,7 @@ struct {
 
 __description("dsize")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void dsize(void)
 {
@@ -194,6 +195,7 @@ char _license[] SEC("license") = "GPL";
 
 __description("dsize2")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void dsize2(void)
 {
@@ -244,6 +246,7 @@ char _license[] SEC("license") = "GPL";
 
 __description("atomic")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void atomic(void)
 {
@@ -328,6 +331,9 @@ __failure_unpriv
 /* 1h */ /* 2h */
 /* 3h */
 __msg_unpriv('bar')
+/* 1i */ /* 2i */
+/* 3i */
+__retval(1)
 /* 1j */ /* 2j */
 /* 3j */
 __flag(BPF_F_ANY_ALIGNMENT)
@@ -427,6 +433,7 @@ __naked void t1(void)
 
 __description("t2")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void t2(void)
 {
@@ -438,7 +445,7 @@ __naked void t2(void)
 
 __description("t3")
 __success __success_unpriv
-__log_level(2)
+__log_level(2) __retval(0)
 SEC("socket")
 __naked void t3(void)
 {
@@ -462,6 +469,7 @@ __naked void t4(void)
 __description("t5")
 __success __msg("x")
 __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void t5(void)
 {
@@ -474,6 +482,7 @@ __naked void t5(void)
 __description("t6")
 __success __msg("x")
 __failure_unpriv __msg_unpriv("y")
+__retval(0)
 SEC("socket")
 __naked void t6(void)
 {
@@ -485,6 +494,7 @@ __naked void t6(void)
 
 __description("t7")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void t7(void)
 {
@@ -496,6 +506,7 @@ __naked void t7(void)
 
 __description("t8")
 __success __success_unpriv
+__retval(0)
 SEC("cgroup/skb")
 __naked void t8(void)
 {
@@ -539,6 +550,7 @@ char _license[] SEC("license") = "GPL";
 
 __description("imm")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void imm(void)
 {
@@ -595,6 +607,7 @@ void __kfunc_btf_root()
 
 __description("kfunc")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void kfunc(void)
 {
@@ -632,6 +645,7 @@ char _license[] SEC("license") = "GPL";
 
 __description("macro")
 __success __success_unpriv
+__retval(0)
 SEC("socket")
 __naked void macro(void)
 {
