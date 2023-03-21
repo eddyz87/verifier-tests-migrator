@@ -12,8 +12,8 @@ from cfg import build_cfg, compute_live_regs, cfg_to_dot, cfg_to_text
 from rewrite import convert_string, Options, convert_insn_list, parse_c_string
 
 class Tests(unittest.TestCase):
-    def _aux(self, input, expected_output):
-        output = convert_string(input, Options())
+    def _aux(self, input, expected_output, options=Options()):
+        output = convert_string(input, options)
         self.maxDiff = None
         self.assertMultiLineEqual(expected_output.lstrip(), output,)
 
@@ -94,8 +94,7 @@ __naked void invalid_and_of_negative_number(void)
 	call %[bpf_map_lookup_elem];			\\
 	if r0 == 0 goto l0_%=;				\\
 	r1 = *(u8*)(r0 + 0);				\\
-l0_%=:							\\
-	r1 &= -4;					\\
+l0_%=:	r1 &= -4;					\\
 	r1 <<= 2;					\\
 	r1 %%= 2;					\\
 	r1 |= 2;					\\
@@ -113,8 +112,7 @@ l0_%=:							\\
 	*(u64*)(r0 + 0) = %[test_val_foo_offset];	\\
 	call l1_%=;					\\
 	exit;						\\
-l1_%=:							\\
-	exit;						\\
+l1_%=:	exit;						\\
 "	:
 	: __imm(bpf_map_lookup_elem),
 	  __imm_addr(map_hash_48b),
@@ -200,8 +198,7 @@ __retval(0)
 __naked void dsize2(void)
 {
 	asm volatile ("
-l0_%=:							\\
-	r1 = 0 ll;					\\
+l0_%=:	r1 = 0 ll;					\\
 	goto l0_%=;					\\
 	r1 = 0 ll;					\\
 	goto l0_%=;					\\
@@ -212,6 +209,39 @@ l0_%=:							\\
 
 char _license[] SEC("license") = "GPL";
 '''.lstrip())
+
+    def test_long_label(self):
+        self._aux('''
+{
+	"dsize2",
+	.insns = {
+	BPF_MOV64_REG(BPF_REG_0, BPF_REG_0),
+	BPF_JMP_A(-1),
+	},
+	.result = ACCEPT,
+},
+''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("socket")
+__description("dsize2")
+__success __success_unpriv
+__retval(0)
+__naked void dsize2(void)
+{
+	asm volatile ("
+	r0 = r0;					\\
+l100_%=:						\\
+	goto l100_%=;					\\
+"	:
+	:
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";
+'''.lstrip(), options=Options(label_start=100))
 
     def test_atomic(self):
         self._aux('''
@@ -842,7 +872,7 @@ class ReplaceSTMem(unittest.TestCase):
     def _aux_st(self, input, expected_output):
         insns = insns_from_string(input)
         insns = rewrite.replace_st_mem(insns)
-        insns = rewrite.insert_labels(insns)
+        insns = rewrite.insert_labels(insns, Options())
         with io.StringIO() as out:
             for insn in insns:
                 text = str(insn)

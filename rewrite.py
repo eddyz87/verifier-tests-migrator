@@ -848,9 +848,10 @@ def replace_st_mem(insns):
         insn.vars['goto'] = new_target - new_idx - 1
     return new_insns
 
-def insert_labels(insns):
+def insert_labels(insns, options):
     targets = {}
-    counter = 0
+    # long labels are used for testing
+    counter = options.label_start
     for i, insn in enumerate(insns):
         if isinstance(insn, str):
             print((i, insn))
@@ -950,7 +951,7 @@ def patch_test_info(info, options):
     info.imms = rename_imms(info.insns)
     if options.replace_st_mem:
         info.insns = replace_st_mem(info.insns)
-    info.insns = insert_labels(info.insns)
+    info.insns = insert_labels(info.insns, options)
     if (not info.retval
         and info.result in [Verdict.ACCEPT, Verdict.VERBOSE_ACCEPT]
         and (info.prog_type in EXECUTABLE_PROG_TYPES
@@ -990,18 +991,27 @@ def format_insns(insns, newlines):
             out.write(add_padding(line))
             out.write(line_ending)
 
-    with io.StringIO() as out:
+    with StringIOWrapper() as out:
         for i, insn in enumerate(insns):
             if getattr(insn, 'dummy', False):
                 continue
             write_comment(getattr(insn, 'comment', None))
             text = escape(str(insn))
-            if not text.endswith(':'):
+            is_label = text.endswith(':')
+            if is_label:
+                if len(text) < 8:
+                    out.write(text)
+                else:
+                    text = add_padding(text)
+                    out.write(text)
+                    out.write(line_ending)
+            else:
                 text = '\t' + text
-            text = add_padding(text)
-            out.write(text)
-            out.write(line_ending)
+                text = add_padding(text)
+                out.write(text)
+                out.write(line_ending)
             write_comment(getattr(insn, 'after_comment', None))
+        out.ensure_newline()
         return out.getvalue()
 
 def collect_attrs(info):
@@ -1609,6 +1619,7 @@ class Options:
     replace_st_mem: bool = False
     discard_prefix: str = ''
     blacklist: list = ()
+    label_start: int = 0
 
 @dataclass
 class Comment:
