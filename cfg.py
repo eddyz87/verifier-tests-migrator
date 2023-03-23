@@ -85,7 +85,7 @@ def gen_kill(insn):
     if text == 'exit;':
         return 1, 0
 
-    if text.startswith('call') and 'goto' in insn.vars:
+    if text.startswith('call'):
         return CALL_MASK, CALL_MASK
 
     dst_action = insn.dst_action

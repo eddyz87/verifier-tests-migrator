@@ -834,6 +834,12 @@ BPF_EXIT_INSN(),
 # 17: exit; ; 0
 ''')
 
+    def test_call2(self):
+        self._aux('''
+BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_map_lookup_elem),
+''', '''
+# 0 : call Imm(text='bpf_map_lookup_elem', base_name=None, insn=False); ; 0, 1, 2, 3, 4, 5
+''')
 
     def test_call_r0(self):
         self._aux('''

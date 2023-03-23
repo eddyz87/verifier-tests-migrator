@@ -436,6 +436,7 @@ class InsnMatchers:
             imm = m.expr()
             insn = d('{dst} = {imm} ll;')
             insn.double_size = True
+            insn.dst_action = 'w'
             return insn
         else:
             dst = m._next_arg().text
@@ -829,7 +830,6 @@ def replace_st_mem(insns):
             src  = f'r{free_reg}'   # TODO: should this be 'w' ?
             new_insns.append(d('{src} = {imm};'))
             new_insns.append(d('*({sz}*)({dst} {sign} {off}) = {src};'))
-            new_insns[0].comment = '/* CHECK ME: converted BPF_ST */'
         else:
             new_insns.append(insn)
             if insn.st_mem:
@@ -992,6 +992,7 @@ def format_insns(insns, newlines):
             out.write(line_ending)
 
     with StringIOWrapper() as out:
+        label_line = False
         for i, insn in enumerate(insns):
             if getattr(insn, 'dummy', False):
                 continue
@@ -1000,18 +1001,23 @@ def format_insns(insns, newlines):
             is_label = text.endswith(':')
             if is_label:
                 if len(text) < 8:
+                    label_line = True
                     out.write(text)
                 else:
+                    label_line = False
                     text = add_padding(text)
                     out.write(text)
                     out.write(line_ending)
             else:
+                label_line = False
                 text = '\t' + text
                 text = add_padding(text)
                 out.write(text)
                 out.write(line_ending)
             write_comment(getattr(insn, 'after_comment', None))
-        out.ensure_newline()
+        if label_line:
+            out.write(add_padding(""))
+            out.write(line_ending)
         return out.getvalue()
 
 def collect_attrs(info):
@@ -1278,12 +1284,6 @@ MAPS = {
 #define MAX_ENTRIES 11
 '''},
 
-    'TEST_DATA_LEN': {
-        'deps': [],
-        'text': '''
-#define TEST_DATA_LEN 64
-'''},
-
     'test_val': {
         'deps': ['MAX_ENTRIES'],
         'text': '''
@@ -1347,7 +1347,7 @@ struct {
 '''},
 
     'cgroup_storage': {
-        'deps': ['TEST_DATA_LEN'],
+        'deps': [],
         'text': '''
 struct {
 	__uint(type, BPF_MAP_TYPE_CGROUP_STORAGE);
@@ -1620,6 +1620,7 @@ class Options:
     replace_st_mem: bool = False
     discard_prefix: str = ''
     blacklist: list = ()
+    whitelist: list = ()
     label_start: int = 0
 
 @dataclass
@@ -1654,12 +1655,12 @@ def convert_translation_unit(root_node, options):
             try:
                 info = match_test_info(test_node)
                 skip = False
-                for bl_entry in options.blacklist:
-                    if re.search(bl_entry, info.name):
-                        skip = True
-                        break
+                if options.blacklist:
+                    skip = any(map(lambda r: re.search(r, info.name), options.blacklist))
+                if not skip and options.whitelist:
+                    skip = not any(map(lambda r: re.search(r, info.name), options.whitelist))
                 if skip:
-                    logging.warning(f'skipping blacklisted test {info.name}')
+                    logging.warning(f'skipping {info.name}')
                     continue
                 entries.append(TestCase(info))
             except MatchError as error:
@@ -1710,7 +1711,6 @@ def convert_file(file_name, options):
         short_name = file_name.removeprefix(options.discard_prefix)
         print( '// SPDX-License-Identifier: GPL-2.0')
         print(f'/* Converted from {short_name} */')
-        print( '/* Use test_loader marker */')
         print(convert_string(f.read(), options))
 
 if __name__ == '__main__':
@@ -1721,7 +1721,9 @@ if __name__ == '__main__':
     p.add_argument('file_name', type=str)
     p.add_argument('--discard-prefix', type=str, default='')
     blacklist = []
+    whitelist = []
     p.add_argument('--blacklist', action='append', default=blacklist)
+    p.add_argument('--whitelist', action='append', default=whitelist)
     args = p.parse_args()
     if args.debug:
         log_level = logging.DEBUG
@@ -1731,7 +1733,8 @@ if __name__ == '__main__':
     convert_file(args.file_name, Options(newlines=args.newlines,
                                          replace_st_mem=args.replace_st_mem,
                                          discard_prefix=args.discard_prefix,
-                                         blacklist=args.blacklist))
+                                         blacklist=args.blacklist,
+                                         whitelist=args.whitelist))
 
 # TODO:
 # - preserve comments
