@@ -406,6 +406,7 @@ char _license[] SEC("license") = "GPL";
 	BPF_ATOMIC_OP(BPF_DW, BPF_OR , BPF_REG_10, BPF_REG_3, -foo),
 	BPF_ATOMIC_OP(BPF_DW, BPF_XCHG, BPF_REG_10, BPF_REG_1, -foo),
 	BPF_ATOMIC_OP(BPF_DW, BPF_CMPXCHG, BPF_REG_10, BPF_REG_1, -foo),
+	BPF_ALU64_IMM(BPF_MOV, BPF_REG_0, sizeof(struct foo)),
 	},
 	.result = REJECT,
 },
@@ -431,10 +432,12 @@ __naked void imm(void)
 	lock *(u64 *)(r10 - %[foo]) |= r3;		\\
 	r1 = xchg_64(r10 - %[foo], r1);			\\
 	r0 = cmpxchg_64(r10 - %[foo], r0, r1);		\\
+	r0 = %[sizeof_foo];				\\
 "	:
 	: __imm(foo),
 	  __imm_const(foo_bar, offsetof(struct foo, bar)),
-	  __imm_const(foo_buz_7, offsetof(struct foo, buz[7]))
+	  __imm_const(foo_buz_7, offsetof(struct foo, buz[7])),
+	  __imm_const(sizeof_foo, sizeof(struct foo))
 	: __clobber_all);
 }
 

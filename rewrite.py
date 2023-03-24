@@ -894,6 +894,8 @@ def guess_imm_basename(imm):
         return m[1], False
     if m := re.match(r'^&([\w\d]+)$', text):
         return m[1], False
+    if m := re.match(r'^sizeof\(struct ([\w\d]+)\)$', text):
+        return f'sizeof_{m[1]}', False
     if m := re.match(r'^(offsetof|offsetofend)\(struct ([\w\d]+), ([\w\d]+)(\[[0-9]+\])?\)$',
                      text):
         suffix = ''
