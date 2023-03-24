@@ -1693,6 +1693,7 @@ Can't convert test case:
                 case TestCase(info):
                     out.write(render_test_info(info, options))
                 case Comment(text):
+                    out.write("\n")
                     out.write(text)
                     out.write("\n")
         out.write('\n')
@@ -1713,6 +1714,7 @@ def convert_file(file_name, options):
         short_name = file_name.removeprefix(options.discard_prefix)
         print( '// SPDX-License-Identifier: GPL-2.0')
         print(f'/* Converted from {short_name} */')
+        print()
         print(convert_string(f.read(), options))
 
 if __name__ == '__main__':
