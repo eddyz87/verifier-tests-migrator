@@ -109,7 +109,7 @@ l0_%=:	r1 &= -4;					\\
 	.8byte %[ld_map_fd_1];				\\
 	.8byte 0;					\\
 	// comment					\\
-	*(u64*)(r0 + 0) = %[test_val_foo_offset];	\\
+	*(u64*)(r0 + 0) = %[test_val_foo];		\\
 	call l1_%=;					\\
 	exit;						\\
 l1_%=:	exit;						\\
@@ -117,7 +117,7 @@ l1_%=:	exit;						\\
 	: __imm(bpf_map_lookup_elem),
 	  __imm_addr(map_hash_48b),
 	  __imm_const(__imm_0, -8 + 2),
-	  __imm_const(test_val_foo_offset, offsetof(struct test_val, foo)),
+	  __imm_const(test_val_foo, offsetof(struct test_val, foo)),
 	  __imm_insn(ld_map_fd, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_7, BPF_PSEUDO_MAP_FD, 0, 32)),
 	  __imm_insn(ld_map_fd_1, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_8, BPF_PSEUDO_MAP_FD, 0, 42))
 	: __clobber_all);
@@ -393,6 +393,7 @@ char _license[] SEC("license") = "GPL";
 	.insns = {
 	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, offsetof(struct foo, bar)),
 	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, -offsetof(struct foo, bar)),
+	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, offsetof(struct foo, buz[7])),
 	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, 42),
 	BPF_LDX_MEM(BPF_DW, BPF_REG_0, BPF_REG_1, -7),
 	BPF_ST_MEM(BPF_DW, BPF_REG_0, -foo, -8),
@@ -415,8 +416,9 @@ __failure __failure_unpriv
 __naked void imm(void)
 {
 	asm volatile ("					\\
-	r0 = *(u64*)(r1 + %[foo_bar_offset]);		\\
-	r0 = *(u64*)(r1 - %[foo_bar_offset]);		\\
+	r0 = *(u64*)(r1 + %[foo_bar]);			\\
+	r0 = *(u64*)(r1 - %[foo_bar]);			\\
+	r0 = *(u64*)(r1 + %[foo_buz_7]);		\\
 	r0 = *(u64*)(r1 + 42);				\\
 	r0 = *(u64*)(r1 - 7);				\\
 	*(u64*)(r0 - %[foo]) = -8;			\\
@@ -426,7 +428,8 @@ __naked void imm(void)
 	r0 = cmpxchg_64(r10 - %[foo], r0, r1);		\\
 "	:
 	: __imm(foo),
-	  __imm_const(foo_bar_offset, offsetof(struct foo, bar))
+	  __imm_const(foo_bar, offsetof(struct foo, bar)),
+	  __imm_const(foo_buz_7, offsetof(struct foo, buz[7]))
 	: __clobber_all);
 }
 
@@ -680,9 +683,9 @@ __retval(0)
 __naked void macro(void)
 {
 	asm volatile ("					\\
-	r0 = *(u32*)(r1 + %[__sk_buff_gso_size_end_offset]);\\
+	r0 = *(u32*)(r1 + %[__sk_buff_gso_size__end]);	\\
 "	:
-	: __imm_const(__sk_buff_gso_size_end_offset, offsetofend(struct __sk_buff, gso_size))
+	: __imm_const(__sk_buff_gso_size__end, offsetofend(struct __sk_buff, gso_size))
 	: __clobber_all);
 }
 

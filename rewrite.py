@@ -888,12 +888,14 @@ def guess_imm_basename(imm):
         return m[1], False
     if m := re.match(r'^&([\w\d]+)$', text):
         return m[1], False
-    if m := re.match(r'^(offsetof|offsetofend)\(struct ([\w\d]+), ([\w\d]+)\)$', text):
-        if m[1] == 'offsetof':
-            suffix = 'offset'
-        else:
-            suffix = 'end_offset'
-        return f'{m[2]}_{m[3]}_{suffix}', False
+    if m := re.match(r'^(offsetof|offsetofend)\(struct ([\w\d]+), ([\w\d]+)(\[[0-9]+\])?\)$',
+                     text):
+        suffix = ''
+        if m[4]:
+            suffix += "_" + m[4][1:-1]
+        if m[1] == 'offsetofend':
+            suffix += '__end'
+        return f'{m[2]}_{m[3]}{suffix}', False
     return '__imm', True
 
 def gen_imm_name(imm, counters):
