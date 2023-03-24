@@ -384,6 +384,46 @@ __naked void atomic(void)
 char _license[] SEC("license") = "GPL";
 ''', Options(replace_st_mem=True))
 
+    def test_dummy_comments_removal(self):
+        self._aux('''
+{
+	"comments test",
+	.insns = {
+	/* r1 = 42 */
+	BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 42),
+	/* w1 = 42; */
+	BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 42),
+	/* r1   = 42, */
+	BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 42),
+	/* r1 = 142 */
+	BPF_ALU64_IMM(BPF_MOV, BPF_REG_1, 42),
+	},
+	.result = ACCEPT
+},
+''',
+                  '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("socket")
+__description("comments test")
+__success __success_unpriv
+__retval(0)
+__naked void comments_test(void)
+{
+	asm volatile ("					\\
+	r1 = 42;					\\
+	r1 = 42;					\\
+	r1 = 42;					\\
+	/* r1 = 142 */					\\
+	r1 = 42;					\\
+"	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";
+''')
+
     def test_off(self):
         self._aux('''
 {

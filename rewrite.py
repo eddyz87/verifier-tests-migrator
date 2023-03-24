@@ -985,6 +985,22 @@ def add_padding(text, num_tabs=ASM_LINE_WIDTH_IN_TABS):
     width_in_tabs = len(text.replace('\t', ' '*8)) // 8
     return text + '\t'*(num_tabs - width_in_tabs)
 
+# Filter out a bunch of unnecessary comments coming from
+# tools/testing/selftests/bpf/verifier/spill_fill.c
+def similar_strings(a, b):
+    def simplify(s):
+        s = s.strip()
+        s = re.sub(r'\s+', '', s)
+        s = s.removeprefix('/*')
+        s = s.removesuffix('*/')
+        s = s.removesuffix(';')
+        s = s.removesuffix(',')
+        s = re.sub(r'w([0-9]+)', lambda m: 'r' + m[1], s)
+        s = re.sub(r'u(8|16|32|64)', 'uXX', s)
+        return s
+
+    return simplify(a) == simplify(b)
+
 def format_insns(insns, newlines):
     if len(insns) == 0:
         return ''
@@ -994,8 +1010,10 @@ def format_insns(insns, newlines):
         line_ending += '\\n'
     line_ending += '\\\n'
 
-    def write_comment(text):
+    def write_comment(text, insn_text):
         if not text:
+            return
+        if similar_strings(text, insn_text):
             return
         pfx = ''
         for line in text.split('\n'):
@@ -1012,8 +1030,8 @@ def format_insns(insns, newlines):
         for i, insn in enumerate(insns):
             if getattr(insn, 'dummy', False):
                 continue
-            write_comment(getattr(insn, 'comment', None))
             text = escape(str(insn))
+            write_comment(getattr(insn, 'comment', None), text)
             is_label = text.endswith(':')
             if is_label:
                 if len(text) < 8:
@@ -1030,7 +1048,7 @@ def format_insns(insns, newlines):
                 text = add_padding(text)
                 out.write(text)
                 out.write(line_ending)
-            write_comment(getattr(insn, 'after_comment', None))
+            write_comment(getattr(insn, 'after_comment', None), text)
         if label_line:
             out.write(add_padding(""))
             out.write(line_ending)
