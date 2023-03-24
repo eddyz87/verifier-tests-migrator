@@ -828,8 +828,14 @@ def replace_st_mem(insns):
             off  = insn.vars['off']
             imm  = insn.vars['imm']
             src  = f'r{free_reg}'   # TODO: should this be 'w' ?
-            new_insns.append(d('{src} = {imm};'))
-            new_insns.append(d('*({sz}*)({dst} {sign} {off}) = {src};'))
+            fst_insn = d('{src} = {imm};')
+            snd_insn = d('*({sz}*)({dst} {sign} {off}) = {src};')
+            if comment := getattr(insn, 'comment', None):
+                fst_insn.comment = comment
+            if comment := getattr(insn, 'after_comment', None):
+                snd_insn.after_comment = comment
+            new_insns.append(fst_insn)
+            new_insns.append(snd_insn)
         else:
             new_insns.append(insn)
             if insn.st_mem:

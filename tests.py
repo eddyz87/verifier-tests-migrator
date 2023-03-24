@@ -317,7 +317,7 @@ char _license[] SEC("license") = "GPL";
 	.insns = {
 	/* 1c */ /* 2c */
 	/* 3c */
-	BPF_ATOMIC_OP(BPF_DW, BPF_ADD | BPF_FETCH, BPF_REG_10, BPF_REG_1, -8),
+	BPF_ST_MEM(BPF_DW, BPF_REG_1, -16, 77),
 	/* 1d */ /* 2d */
 	/* 3d */
 	},
@@ -375,7 +375,8 @@ __naked void atomic(void)
 	asm volatile ("					\\
 	/* 1c */ /* 2c */				\\
 	/* 3c */					\\
-	r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);	\\
+	r0 = 77;					\\
+	*(u64*)(r1 - 16) = r0;				\\
 	/* 1d */ /* 2d */				\\
 	/* 3d */					\\
 "	:
@@ -384,7 +385,7 @@ __naked void atomic(void)
 }
 
 char _license[] SEC("license") = "GPL";
-''')
+''', Options(replace_st_mem=True))
 
     def test_off(self):
         self._aux('''
