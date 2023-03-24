@@ -994,10 +994,15 @@ def format_insns(insns, newlines):
     def write_comment(text):
         if not text:
             return
+        pfx = ''
         for line in text.split('\n'):
-            line = '\t' + line.strip()
-            out.write(add_padding(line))
+            line = line.strip()
+            if line.startswith('/*'):
+                pfx = ''
+            out.write(add_padding(f"\t{pfx}{line}"))
             out.write(line_ending)
+            if line.startswith('/*'):
+                pfx = ' '
 
     with StringIOWrapper() as out:
         label_line = False

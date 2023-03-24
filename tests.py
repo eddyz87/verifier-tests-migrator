@@ -316,7 +316,9 @@ char _license[] SEC("license") = "GPL";
 	/* 3b */
 	.insns = {
 	/* 1c */ /* 2c */
-	/* 3c */
+	/* 3c
+         * 4c
+         */
 	BPF_ST_MEM(BPF_DW, BPF_REG_1, -16, 77),
 	/* 1d */ /* 2d */
 	/* 3d */
@@ -374,7 +376,9 @@ __naked void atomic(void)
 	/* 3b */
 	asm volatile ("					\\
 	/* 1c */ /* 2c */				\\
-	/* 3c */					\\
+	/* 3c						\\
+	 * 4c						\\
+	 */						\\
 	r0 = 77;					\\
 	*(u64*)(r1 - 16) = r0;				\\
 	/* 1d */ /* 2d */				\\
