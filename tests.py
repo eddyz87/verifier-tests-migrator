@@ -45,7 +45,8 @@ class Tests(unittest.TestCase):
 	BPF_LD_MAP_FD(BPF_REG_7, 32),
 	BPF_LD_MAP_FD(BPF_REG_8, 42),
 	// comment
-	BPF_ST_MEM(BPF_DW, BPF_REG_0, 0, offsetof(struct test_val, foo)),
+	BPF_ST_MEM(BPF_DW, BPF_REG_0, 0, offsetof(struct test_val,
+						  foo)),
 	BPF_CALL_REL(1),
 	BPF_EXIT_INSN(),
 	BPF_EXIT_INSN(),

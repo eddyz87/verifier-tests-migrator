@@ -894,9 +894,9 @@ def guess_imm_basename(imm):
         return m[1], False
     if m := re.match(r'^&([\w\d]+)$', text):
         return m[1], False
-    if m := re.match(r'^sizeof\(struct ([\w\d]+)\)$', text):
+    if m := re.match(r'^sizeof\(struct\s+([\w\d]+)\)$', text):
         return f'sizeof_{m[1]}', False
-    if m := re.match(r'^(offsetof|offsetofend)\(struct ([\w\d]+), ([\w\d]+)(\[[0-9]+\])?\)$',
+    if m := re.match(r'^(offsetof|offsetofend)\(struct ([\w\d]+),\s*([\w\d]+)(\[[0-9]+\])?\)$',
                      text):
         suffix = ''
         if m[4]:
@@ -939,6 +939,7 @@ def format_imms(imm_to_name):
         elif text == f'&{name}':
             imms.append(f'__imm_addr({name})')
         else:
+            text = re.sub(r'\s+', ' ', imm.text)
             imms.append(f'__imm_const({name}, {text})')
     imms.sort()
     return ",\n\t  ".join(imms)
