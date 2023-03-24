@@ -1176,7 +1176,12 @@ def render_test_info(info, options):
     imms_text = format_imms(info.imms)
     sec = convert_prog_type(info.prog_type)
     if imms_text:
-        imms_text = ' ' + imms_text
+        tail = f'''
+	: {imms_text}
+	: __clobber_all
+'''.rstrip()
+    else:
+        tail = ':: __clobber_all'
 
     return f'''
 {initial_comment}SEC("{sec}")
@@ -1184,9 +1189,7 @@ def render_test_info(info, options):
 __naked void {info.func_name}(void)
 {{
 	{insns_comments}{asm_volatile}
-{insn_text}"	:
-	:{imms_text}
-	: __clobber_all);
+{insn_text}"	:{tail});
 }}
 '''
 

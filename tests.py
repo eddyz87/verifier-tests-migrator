@@ -202,9 +202,7 @@ l0_%=:	r1 = 0 ll;					\\
 	goto l0_%=;					\\
 	r1 = 0 ll;					\\
 	goto l0_%=;					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";
@@ -235,9 +233,7 @@ __naked void dsize2(void)
 	r0 = r0;					\\
 l100_%=:						\\
 	goto l100_%=;					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";
@@ -298,9 +294,7 @@ __naked void atomic(void)
 	//						\\
 	r0 = cmpxchg_64(r10 - 8, r0, r1);		\\
 	w0 = cmpxchg32_32(r10 - 4, w0, w1);		\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";
@@ -383,9 +377,7 @@ __naked void atomic(void)
 	*(u64*)(r1 - 16) = r0;				\\
 	/* 1d */ /* 2d */				\\
 	/* 3d */					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";
@@ -467,9 +459,7 @@ __failure __failure_unpriv
 __naked void t1(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("socket")
@@ -479,9 +469,7 @@ __retval(0)
 __naked void t2(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("socket")
@@ -491,9 +479,7 @@ __log_level(2) __retval(0)
 __naked void t3(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("socket")
@@ -502,9 +488,7 @@ __failure __failure_unpriv
 __naked void t4(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("socket")
@@ -515,9 +499,7 @@ __retval(0)
 __naked void t5(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("socket")
@@ -528,9 +510,7 @@ __retval(0)
 __naked void t6(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("socket")
@@ -540,9 +520,7 @@ __retval(0)
 __naked void t7(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("cgroup/skb")
@@ -552,9 +530,7 @@ __retval(0)
 __naked void t8(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 SEC("lsm")
@@ -563,9 +539,7 @@ __success
 __naked void t9(void)
 {
 	asm volatile ("					\\
-"	:
-	:
-	: __clobber_all);
+"	::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";
