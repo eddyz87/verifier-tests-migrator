@@ -1092,7 +1092,8 @@ def collect_attrs(info):
         else:
             attr('result_unpriv', lambda result: attrs_for_verdict(result, True))
             attr('errstr_unpriv', lambda errstr: f'__msg_unpriv({errstr})')
-    attrs.append(Newline())
+    if info.errstr or info.errstr_unpriv:
+        attrs.append(Newline())
     if Verdict.VERBOSE_ACCEPT in [info.result, info.result_unpriv]:
         if Verdict.ACCEPT in [info.result, info.result_unpriv]:
             logging.warning(f'Log level differs between priv and unpriv for {info.name}')

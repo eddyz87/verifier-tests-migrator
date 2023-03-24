@@ -156,8 +156,7 @@ struct {
 
 SEC("socket")
 __description("dsize")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void dsize(void)
 {
 	asm volatile ("					\\
@@ -194,8 +193,7 @@ char _license[] SEC("license") = "GPL";
 
 SEC("socket")
 __description("dsize2")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void dsize2(void)
 {
 	asm volatile ("					\\
@@ -226,8 +224,7 @@ char _license[] SEC("license") = "GPL";
 
 SEC("socket")
 __description("dsize2")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void dsize2(void)
 {
 	asm volatile ("					\\
@@ -273,8 +270,7 @@ char _license[] SEC("license") = "GPL";
 
 SEC("socket")
 __description("atomic")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void atomic(void)
 {
 	asm volatile ("					\\
@@ -408,8 +404,7 @@ char _license[] SEC("license") = "GPL";
 
 SEC("socket")
 __description("comments test")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void comments_test(void)
 {
 	asm volatile ("					\\
@@ -505,8 +500,7 @@ __naked void t1(void)
 
 SEC("socket")
 __description("t2")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void t2(void)
 {
 	asm volatile ("					\\
@@ -515,8 +509,7 @@ __naked void t2(void)
 
 SEC("socket")
 __description("t3")
-__success __success_unpriv
-__log_level(2) __retval(0)
+__success __success_unpriv __log_level(2) __retval(0)
 __naked void t3(void)
 {
 	asm volatile ("					\\
@@ -556,8 +549,7 @@ __naked void t6(void)
 
 SEC("socket")
 __description("t7")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void t7(void)
 {
 	asm volatile ("					\\
@@ -566,8 +558,7 @@ __naked void t7(void)
 
 SEC("cgroup/skb")
 __description("t8")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void t8(void)
 {
 	asm volatile ("					\\
@@ -606,8 +597,7 @@ char _license[] SEC("license") = "GPL";
 
 SEC("socket")
 __description("imm")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void imm(void)
 {
 	asm volatile ("					\\
@@ -663,8 +653,7 @@ void __kfunc_btf_root()
 
 SEC("socket")
 __description("kfunc")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void kfunc(void)
 {
 	asm volatile ("					\\
@@ -701,8 +690,7 @@ char _license[] SEC("license") = "GPL";
 
 SEC("socket")
 __description("macro")
-__success __success_unpriv
-__retval(0)
+__success __success_unpriv __retval(0)
 __naked void macro(void)
 {
 	asm volatile ("					\\
