@@ -1733,7 +1733,7 @@ Can't convert test case:
                     out.write(text)
                     out.write("\n")
         out.write('\n')
-        out.write('char _license[] SEC("license") = "GPL";\n')
+        out.write('char _license[] SEC("license") = "GPL";')
         return out.getvalue()
 
 ###############################

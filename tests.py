@@ -124,8 +124,7 @@ l1_%=:	exit;						\\
 	: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_double_size_insn(self):
         self._aux('''
@@ -171,8 +170,7 @@ __naked void dsize(void)
 	: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_double_size_insn2(self):
         self._aux('''
@@ -204,8 +202,7 @@ l0_%=:	r1 = 0 ll;					\\
 "	::: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-'''.lstrip())
+char _license[] SEC("license") = "GPL";''')
 
     def test_long_label(self):
         self._aux('''
@@ -234,8 +231,7 @@ l100_%=:						\\
 "	::: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-'''.lstrip(), options=Options(label_start=100))
+char _license[] SEC("license") = "GPL";''', options=Options(label_start=100))
 
     def test_atomic(self):
         self._aux('''
@@ -294,8 +290,7 @@ __naked void atomic(void)
 "	::: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_comments(self):
         self._aux('''
@@ -377,8 +372,7 @@ __naked void atomic(void)
 "	::: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''', Options(replace_st_mem=True))
+char _license[] SEC("license") = "GPL";''', Options(replace_st_mem=True))
 
     def test_dummy_comments_removal(self):
         self._aux('''
@@ -416,8 +410,7 @@ __naked void comments_test(void)
 "	::: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_off(self):
         self._aux('''
@@ -469,8 +462,7 @@ __naked void imm(void)
 	: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_result_attrs(self):
         self._aux('''
@@ -574,8 +566,7 @@ __naked void t9(void)
 "	::: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_bad_insns(self):
         self._aux('''
@@ -610,8 +601,7 @@ __naked void imm(void)
 	: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_kfunc(self):
         self._aux('''
@@ -666,8 +656,7 @@ __naked void kfunc(void)
 	: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
     def test_macro1(self):
         self._aux('''
@@ -700,8 +689,7 @@ __naked void macro(void)
 	: __clobber_all);
 }
 
-char _license[] SEC("license") = "GPL";
-''')
+char _license[] SEC("license") = "GPL";''')
 
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
