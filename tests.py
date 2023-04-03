@@ -691,6 +691,43 @@ __naked void macro(void)
 
 char _license[] SEC("license") = "GPL";''')
 
+    def test_string_per_insn(self):
+        self._aux('''
+{
+	"string_per_insn",
+	.insns = {
+	/* Comment line #1
+	 * Comment line #2
+         */
+	BPF_MOV64_IMM(BPF_REG_0, 0),
+	/* Another comment */
+	BPF_EXIT_INSN()
+	},
+	.result = ACCEPT
+},
+''',
+                  '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("socket")
+__description("string_per_insn")
+__success __success_unpriv __retval(0)
+__naked void string_per_insn(void)
+{
+	asm volatile (
+	/* Comment line #1
+	 * Comment line #2
+	 */
+	"r0 = 0;"
+	/* Another comment */
+	"exit;"
+	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''', Options(string_per_insn=True))
+
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
 long x[] = {{

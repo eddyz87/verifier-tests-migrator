@@ -1001,31 +1001,41 @@ def similar_strings(a, b):
 
     return simplify(a) == simplify(b)
 
-def format_insns(insns, newlines):
+def format_insns(insns, options):
     if len(insns) == 0:
         return ''
 
     line_ending = ''
-    if newlines:
+    if options.newlines:
         line_ending += '\\n'
     line_ending += '\\\n'
 
-    def write_comment(text, insn_text):
-        if not text:
-            return
-        if similar_strings(text, insn_text):
-            return
-        pfx = ''
-        for line in text.split('\n'):
-            line = line.strip()
-            if line.startswith('/*'):
-                pfx = ''
-            out.write(add_padding(f"\t{pfx}{line}"))
-            out.write(line_ending)
-            if line.startswith('/*'):
-                pfx = ' '
-
     with StringIOWrapper() as out:
+        def write_line(text, is_comment=False):
+            if options.string_per_insn:
+                if not is_comment:
+                    m = re.match(r'^(\t?)(.*)$', text)
+                    text = f'{m[1]}"{m[2]}"'
+                out.write(text)
+                out.write('\n')
+            else:
+                out.write(add_padding(text))
+                out.write(line_ending)
+
+        def write_comment(text, insn_text):
+            if not text:
+                return
+            if similar_strings(text, insn_text):
+                return
+            pfx = ''
+            for line in text.split('\n'):
+                line = line.strip()
+                if line.startswith('/*'):
+                    pfx = ''
+                write_line(f"\t{pfx}{line}", is_comment=True)
+                if line.startswith('/*'):
+                    pfx = ' '
+
         label_line = False
         for i, insn in enumerate(insns):
             if getattr(insn, 'dummy', False):
@@ -1034,24 +1044,18 @@ def format_insns(insns, newlines):
             write_comment(getattr(insn, 'comment', None), text)
             is_label = text.endswith(':')
             if is_label:
-                if len(text) < 8:
+                if len(text) < 8 and not options.string_per_insn:
                     label_line = True
                     out.write(text)
                 else:
                     label_line = False
-                    text = add_padding(text)
-                    out.write(text)
-                    out.write(line_ending)
+                    write_line(text)
             else:
                 label_line = False
-                text = '\t' + text
-                text = add_padding(text)
-                out.write(text)
-                out.write(line_ending)
+                write_line('\t' + text)
             write_comment(getattr(insn, 'after_comment', None), text)
         if label_line:
-            out.write(add_padding(""))
-            out.write(line_ending)
+            write_line("")
         return out.getvalue()
 
 def collect_attrs(info):
@@ -1189,10 +1193,15 @@ def render_test_info(info, options):
         info.comments['name'] = None
     else:
         initial_comment = ''
-    asm_volatile=add_padding('asm volatile ("', 6) + '\\'
+    if options.string_per_insn:
+        asm_volatile='asm volatile ('
+        asm_volatile_end = ''
+    else:
+        asm_volatile = add_padding(f'asm volatile ("', 6) + '\\'
+        asm_volatile_end = '"'
     attrs = collect_attrs(info)
     insns_comments = reindent_comment(info.comments['insns'], 1)
-    insn_text = format_insns(info.insns, options.newlines)
+    insn_text = format_insns(info.insns, options)
     imms_text = format_imms(info.imms)
     sec = convert_prog_type(info.prog_type)
     if imms_text:
@@ -1209,7 +1218,7 @@ def render_test_info(info, options):
 __naked void {info.func_name}(void)
 {{
 	{insns_comments}{asm_volatile}
-{insn_text}"	:{tail});
+{insn_text}{asm_volatile_end}	:{tail});
 }}
 '''
 
@@ -1655,6 +1664,7 @@ def print_auxiliary_definitions(out, infos):
 @dataclass
 class Options:
     newlines: bool = False
+    string_per_insn: bool = False
     replace_st_mem: bool = False
     discard_prefix: str = ''
     blacklist: list = ()
@@ -1757,6 +1767,7 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--debug', action=argparse.BooleanOptionalAction)
     p.add_argument('--newlines', action=argparse.BooleanOptionalAction)
+    p.add_argument('--string-per-insn', action=argparse.BooleanOptionalAction)
     p.add_argument('--replace-st-mem', action=argparse.BooleanOptionalAction)
     p.add_argument('file_name', type=str)
     p.add_argument('--discard-prefix', type=str, default='')
@@ -1772,6 +1783,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=log_level, force=True)
     convert_file(args.file_name, Options(newlines=args.newlines,
                                          replace_st_mem=args.replace_st_mem,
+                                         string_per_insn=args.string_per_insn,
                                          discard_prefix=args.discard_prefix,
                                          blacklist=args.blacklist,
                                          whitelist=args.whitelist))
