@@ -49,6 +49,23 @@ class Tests(unittest.TestCase):
 						  foo)),
 	BPF_CALL_REL(1),
 	BPF_EXIT_INSN(),
+	//
+	BPF_ENDIAN(BPF_TO_LE, BPF_REG_0, 16),
+	BPF_ENDIAN(BPF_TO_LE, BPF_REG_1, 32),
+	BPF_ENDIAN(BPF_TO_LE, BPF_REG_2, 64),
+	//
+	BPF_ENDIAN(BPF_TO_BE, BPF_REG_0, 16),
+	BPF_ENDIAN(BPF_TO_BE, BPF_REG_1, 32),
+	BPF_ENDIAN(BPF_TO_BE, BPF_REG_2, 64),
+	//
+	BPF_ENDIAN(BPF_FROM_LE, BPF_REG_0, 16),
+	BPF_ENDIAN(BPF_FROM_LE, BPF_REG_1, 32),
+	BPF_ENDIAN(BPF_FROM_LE, BPF_REG_2, 64),
+	//
+	BPF_ENDIAN(BPF_FROM_BE, BPF_REG_0, 16),
+	BPF_ENDIAN(BPF_FROM_BE, BPF_REG_1, 32),
+	BPF_ENDIAN(BPF_FROM_BE, BPF_REG_2, 64),
+	//
 	BPF_EXIT_INSN(),
 	},
 	.fixup_map_hash_48b = { 3 },
@@ -127,6 +144,23 @@ static __naked __noinline __attribute__((used))
 void invalid_and_of_negative_number__1(void)
 {
 	asm volatile ("					\\
+	//						\\
+	r0 = le16 r0;					\\
+	r1 = le32 r1;					\\
+	r2 = le64 r2;					\\
+	//						\\
+	r0 = be16 r0;					\\
+	r1 = be32 r1;					\\
+	r2 = be64 r2;					\\
+	//						\\
+	r0 = le16 r0;					\\
+	r1 = le32 r1;					\\
+	r2 = le64 r2;					\\
+	//						\\
+	r0 = be16 r0;					\\
+	r1 = be32 r1;					\\
+	r2 = be64 r2;					\\
+	//						\\
 	exit;						\\
 "	::: __clobber_all);
 }

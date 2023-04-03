@@ -149,6 +149,11 @@ class CallMatcher:
     def expr(self):
         return self._intern_expr(self._next_arg())
 
+    def number(self):
+        arg = self._next_arg()
+        text = arg.mtype('number_literal').text
+        return text_to_int(text)
+
     def off(self):
         arg = self._next_arg()
         match arg.type:
@@ -538,6 +543,22 @@ class InsnMatchers:
     def BPF_EMIT_CALL(m):
         func = m.bpf_func_ident()
         return d('call {func};')
+
+    def BPF_ENDIAN(m):
+        kind = m._ident()
+        match kind:
+            case 'BPF_TO_LE' | 'BPF_FROM_LE':
+                pfx = 'le'
+            case 'BPF_TO_BE' | 'BPF_FROM_BE':
+                pfx = 'be'
+            case _:
+                raise MatchError(f'Unexpected endian kind: {kind}')
+        dst = m.reg()
+        sz = m.number()
+        if sz not in [16, 32, 64]:
+            raise MatchError(f'Unexpected endian size: {sz}')
+        op = f'{pfx}{sz}'
+        return d('{dst} = {op} {dst};', 'rw')
 
 def func_matchers_map():
     func_matchers = defaultdict(list)
