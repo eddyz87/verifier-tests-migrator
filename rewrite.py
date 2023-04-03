@@ -502,7 +502,9 @@ class InsnMatchers:
 
     def BPF_CALL_REL(m):
         goto = m.number()
-        return d('call {goto};')
+        r = d('call {goto};')
+        r.pseudocall = True
+        return r
 
     def BPF_RAW_INSN___bpf_call(m):
         m.jmp_call()
@@ -510,7 +512,9 @@ class InsnMatchers:
         m.one()
         m.zero()
         goto = m.number()
-        return d('call {goto};')
+        r = d('call {goto};')
+        r.pseudocall = True
+        return r
 
     def BPF_RAW_INSN___helper_call(m):
         m.jmp_call()
@@ -959,10 +963,8 @@ def patch_test_info(info, options):
     for map_name in info.map_fixups.keys():
         for i in info.map_fixups[map_name]:
             info.insns[i] = patch_ld_map_fd(info.insns[i], map_name, info.name)
-    info.imms = rename_imms(info.insns)
     if options.replace_st_mem:
         info.insns = replace_st_mem(info.insns)
-    info.insns = insert_labels(info.insns, options)
     if (not info.retval
         and info.result in [Verdict.ACCEPT, Verdict.VERBOSE_ACCEPT]
         and (info.prog_type in EXECUTABLE_PROG_TYPES
@@ -1187,23 +1189,102 @@ def assign_func_names(infos):
             for i, info in enumerate(infos):
                 info.func_name = f'{name}_{i+1}'
 
-def render_test_info(info, options):
-    if name_comment := info.comments.get('name', None):
-        initial_comment = reindent_comment(name_comment, 0)
-        info.comments['name'] = None
-    else:
-        initial_comment = ''
+def collect_imms(insns):
+    imms = []
+    for insn in insns:
+        for imm in insn.vars.values():
+            if not isinstance(imm, Imm):
+                continue
+            imms.append(imm)
+    return imms
+
+def copy_comments(new_insn, old_insn):
+    if c := getattr(old_insn, 'comment', None):
+        new_insn.comment = c
+    if c := getattr(old_insn, 'after_comment', None):
+        new_insn.after_comment = c
+    return new_insn
+
+def slice_into_functions(name, insns):
+    if len(insns) == 0:
+        return [insns]
+
+    call_targets = { 0: 0 }
+    for i, insn in enumerate(insns):
+        if not getattr(insn, 'pseudocall', False):
+            continue
+        target = i + insn.vars['goto'] + 1
+        if target not in call_targets:
+            call_targets[target] = len(call_targets)
+    err = False
+    for target in call_targets:
+        if target >= len(insns) or target < 0:
+            logging.warning(f'{name}: invalid pseudocall target {target}')
+            err = True
+            continue
+        if getattr(insns[target], 'dummy', False):
+            logging.warning(f'{name}: pseudocall target in the middle of double insn {target}')
+            err = True
+    if err:
+        return [insns]
+
+    funcs = []
+    for i, insn in enumerate(insns):
+        if i in call_targets:
+            funcs.append([])
+        if getattr(insn, 'pseudocall', False):
+            target = i + insn.vars['goto'] + 1
+            local_func = call_targets[target]
+            new_insn = d('call {local_func}')
+            new_insn.pseudocall = True
+            insn = copy_comments(new_insn, insn)
+        funcs[-1].append(insn)
+    func_start = 0
+    for func in funcs:
+        for i, insn in enumerate(func):
+            if 'goto' not in insn.vars or getattr(insn, 'pseudocall', False):
+                continue
+            target = i + insn.vars['goto'] + 1
+            if target >= len(insns) or target < 0:
+                logging.warning(f'{name}: goto outside of a function at {i + func_start}')
+                err = True
+        func_start += len(func)
+
+    if err:
+        return [insns]
+
+    return funcs
+
+def rename_local_funcs(base_name, insns):
+    new_insns = []
+    for insn in insns:
+        if 'local_func' in insn.vars:
+            local_func = insn.vars['local_func']
+            if local_func == 0:
+                text = f'call {base_name};'
+            else:
+                text = f'call {base_name}__{local_func};'
+            insn = copy_comments(DString(text, {}), insn)
+        new_insns.append(insn)
+    return new_insns
+
+def render_func(base_name, name, insns, main, insns_comments, options):
     if options.string_per_insn:
         asm_volatile='asm volatile ('
         asm_volatile_end = ''
     else:
         asm_volatile = add_padding(f'asm volatile ("', 6) + '\\'
         asm_volatile_end = '"'
-    attrs = collect_attrs(info)
-    insns_comments = reindent_comment(info.comments['insns'], 1)
-    insn_text = format_insns(info.insns, options)
-    imms_text = format_imms(info.imms)
-    sec = convert_prog_type(info.prog_type)
+    insns = rename_local_funcs(base_name, insns)
+    insns = insert_labels(insns, options)
+    imms = rename_imms(insns)
+    insn_text = format_insns(insns, options)
+    imms_text = format_imms(imms)
+    noinline_text = "" if main else "__noinline "
+    if main:
+        attrs = "__naked "
+    else:
+        attrs = "static __naked __noinline __attribute__((used))\n"
     if imms_text:
         tail = f'''
 	: {imms_text}
@@ -1213,20 +1294,45 @@ def render_test_info(info, options):
         tail = ':: __clobber_all'
 
     return f'''
-{initial_comment}SEC("{sec}")
-{render_attrs(attrs)}
-__naked void {info.func_name}(void)
+{attrs}void {name}(void)
 {{
 	{insns_comments}{asm_volatile}
 {insn_text}{asm_volatile_end}	:{tail});
 }}
-'''
+'''.lstrip()
+
+def render_test_info(info, options):
+    funcs = slice_into_functions(info.name, info.insns)
+    rendered_funcs = []
+    for i, func in enumerate(funcs):
+        main = i == 0
+        rendered_funcs.append(render_func(
+            base_name = info.func_name,
+            name = info.func_name if main else f'{info.func_name}__{i}',
+            insns = func,
+            main = main,
+            insns_comments = reindent_comment(info.comments['insns'], 1),
+            options = options
+        ))
+    if name_comment := info.comments.get('name', None):
+        initial_comment = reindent_comment(name_comment, 0)
+        info.comments['name'] = None
+    else:
+        initial_comment = ''
+    attrs = collect_attrs(info)
+    sec = convert_prog_type(info.prog_type)
+    rendered_funcs[0] = f'''
+{initial_comment}SEC("{sec}")
+{render_attrs(attrs)}
+{rendered_funcs[0].strip()}
+'''.lstrip()
+    return "\n" + "\n".join(rendered_funcs)
 
 def infer_includes(infos):
     extra = set()
     filterh = False
     for info in infos:
-        for imm in info.imms:
+        for imm in collect_imms(info.insns):
             match imm.text:
                 case 'INT_MIN' | 'LLONG_MIN':
                     extra.add('<limits.h>')
@@ -1246,7 +1352,7 @@ def infer_includes(infos):
 def infer_macros(infos):
     macros = set()
     for info in infos:
-        for imm in info.imms:
+        for imm in collect_imms(info.insns):
             if imm.text.find('offsetofend') >= 0:
                 macros.add('''
 #define sizeof_field(TYPE, MEMBER) sizeof((((TYPE *)0)->MEMBER))

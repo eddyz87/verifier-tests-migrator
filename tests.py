@@ -111,9 +111,8 @@ l0_%=:	r1 &= -4;					\\
 	.8byte 0;					\\
 	// comment					\\
 	*(u64*)(r0 + 0) = %[test_val_foo];		\\
-	call l1_%=;					\\
+	call invalid_and_of_negative_number__1;		\\
 	exit;						\\
-l1_%=:	exit;						\\
 "	:
 	: __imm(bpf_map_lookup_elem),
 	  __imm_addr(map_hash_48b),
@@ -122,6 +121,14 @@ l1_%=:	exit;						\\
 	  __imm_insn(ld_map_fd, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_7, BPF_PSEUDO_MAP_FD, 0, 32)),
 	  __imm_insn(ld_map_fd_1, BPF_RAW_INSN(BPF_LD | BPF_DW | BPF_IMM, BPF_REG_8, BPF_PSEUDO_MAP_FD, 0, 42))
 	: __clobber_all);
+}
+
+static __naked __noinline __attribute__((used))
+void invalid_and_of_negative_number__1(void)
+{
+	asm volatile ("					\\
+	exit;						\\
+"	::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";''')
@@ -727,6 +734,98 @@ __naked void string_per_insn(void)
 }
 
 char _license[] SEC("license") = "GPL";''', Options(string_per_insn=True))
+
+    def test_pseudocall1(self):
+        self._aux('''
+{
+	"pseudocall",
+	.insns = {
+        /* c1 */
+	BPF_CALL_REL(1),
+        /* c2 */
+	BPF_EXIT_INSN(),
+	/* c3 */
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 1, 0, -3),
+	/* c4 */
+	},
+	.result = ACCEPT
+},
+''',
+                  '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("socket")
+__description("pseudocall")
+__success __success_unpriv __retval(0)
+__naked void pseudocall(void)
+{
+	asm volatile ("					\\
+	/* c1 */					\\
+	call pseudocall__1;				\\
+	/* c2 */					\\
+	exit;						\\
+"	::: __clobber_all);
+}
+
+static __naked __noinline __attribute__((used))
+void pseudocall__1(void)
+{
+	asm volatile ("					\\
+	/* c3 */					\\
+	call pseudocall;				\\
+	/* c4 */					\\
+"	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''')
+
+    def test_pseudocall2(self):
+        self._aux('''
+{
+	"pseudocall",
+	.insns = {
+	BPF_MOV64_IMM(BPF_REG_0, bar),
+	BPF_CALL_REL(1),
+	BPF_EXIT_INSN(),
+	BPF_MOV64_IMM(BPF_REG_0, foo),
+	BPF_EXIT_INSN(),
+	},
+	.result = ACCEPT
+},
+''',
+                  '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("socket")
+__description("pseudocall")
+__success __success_unpriv __retval(0)
+__naked void pseudocall(void)
+{
+	asm volatile ("					\\
+	r0 = %[bar];					\\
+	call pseudocall__1;				\\
+	exit;						\\
+"	:
+	: __imm(bar)
+	: __clobber_all);
+}
+
+static __naked __noinline __attribute__((used))
+void pseudocall__1(void)
+{
+	asm volatile ("					\\
+	r0 = %[foo];					\\
+	exit;						\\
+"	:
+	: __imm(foo)
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''')
 
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
