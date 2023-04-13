@@ -861,6 +861,87 @@ void pseudocall__1(void)
 
 char _license[] SEC("license") = "GPL";''')
 
+    def test_prog_with_attach_type_1(self):
+        self._aux('''
+{
+	"pseudocall",
+	.insns = {},
+        .prog_type = BPF_PROG_TYPE_CGROUP_SOCK_ADDR,
+        .expected_attach_type = BPF_CGROUP_INET4_CONNECT,
+	.result = ACCEPT
+},
+        ''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("cgroup/connect4")
+__description("pseudocall")
+__success
+__naked void pseudocall(void)
+{
+	asm volatile (
+	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''',
+                Options(string_per_insn=True))
+
+    def test_prog_with_attach_type_2(self):
+        self._aux('''
+{
+	"pseudocall",
+	.insns = {},
+        .prog_type = BPF_PROG_TYPE_LSM,
+        .expected_attach_type = BPF_LSM_MAC,
+        .kfunc = "barumba",
+	.result = ACCEPT
+},
+        ''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("lsm/barumba")
+__description("pseudocall")
+__success
+__naked void pseudocall(void)
+{
+	asm volatile (
+	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''',
+                Options(string_per_insn=True))
+
+    def test_prog_with_attach_type_3(self):
+        self._aux('''
+{
+	"pseudocall",
+	.insns = {},
+        .prog_type = BPF_PROG_TYPE_LSM,
+        .expected_attach_type = BPF_LSM_MAC,
+        .kfunc = "barumba",
+        .flags = BPF_F_SLEEPABLE,
+	.result = ACCEPT
+},
+        ''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("lsm.s/barumba")
+__description("pseudocall")
+__success
+__naked void pseudocall(void)
+{
+	asm volatile (
+	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''',
+                Options(string_per_insn=True))
+
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
 long x[] = {{

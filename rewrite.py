@@ -659,6 +659,25 @@ SEC_BY_PROG_TYPE = {
     'BPF_PROG_TYPE_XDP'                    : 'xdp',
 }
 
+@dataclass
+class SecInfo:
+    base_name: str
+    may_sleep: bool = False
+    need_kfunc: bool = False
+
+SEC_BY_PROG_AND_ATTACH_TYPE = {
+    ('BPF_PROG_TYPE_CGROUP_SOCK_ADDR', 'BPF_CGROUP_INET4_CONNECT'  ): SecInfo("cgroup/connect4"),
+    ('BPF_PROG_TYPE_CGROUP_SOCK'     , 'BPF_CGROUP_INET4_POST_BIND'): SecInfo("cgroup/post_bind4"),
+    ('BPF_PROG_TYPE_CGROUP_SOCKOPT'  , 'BPF_CGROUP_SETSOCKOPT'     ): SecInfo("cgroup/setsockopt"),
+    ('BPF_PROG_TYPE_CGROUP_SOCK_ADDR', 'BPF_CGROUP_UDP6_SENDMSG'   ): SecInfo("cgroup/sendmsg6"),
+    ('BPF_PROG_TYPE_SK_LOOKUP'       , 'BPF_SK_LOOKUP'             ): SecInfo("sk_lookup"),
+    ('BPF_PROG_TYPE_LSM'             , 'BPF_LSM_MAC'               ): SecInfo("lsm"     , True, True),
+    ('BPF_PROG_TYPE_TRACING'         , 'BPF_MODIFY_RETURN'         ): SecInfo("fmod_ret", True, True),
+    ('BPF_PROG_TYPE_TRACING'         , 'BPF_TRACE_FENTRY'          ): SecInfo("fentry"  , True, True),
+    ('BPF_PROG_TYPE_TRACING'         , 'BPF_TRACE_ITER'            ): SecInfo("iter"    , True, True),
+    ('BPF_PROG_TYPE_TRACING'         , 'BPF_TRACE_RAW_TP'          ): SecInfo("tp_btf"  , False, True),
+}
+
 class Verdict(Enum):
     ACCEPT = 1
     REJECT = 2
@@ -685,6 +704,9 @@ class TestInfo:
         self.imms = {}
         self.kfunc_pairs = {}
         self.comments = CommentsDict()
+        self.sleepable = False
+        self.expected_attach_type = None
+        self.kfunc = None
 
 def parse_test_result(node, field_name):
     match node.text:
@@ -709,11 +731,6 @@ def merge_comment_nodes(nodes):
             out.write(n.text)
             last_line = n.end_point[0]
         return out.getvalue()
-
-FLAGS_MAP = {
-    'F_LOAD_WITH_STRICT_ALIGNMENT': 'BPF_F_STRICT_ALIGNMENT',
-    'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS': 'BPF_F_ANY_ALIGNMENT',
-    }
 
 def convert_insn_list(insns_to_convert, map_locations, kfunc_locations):
     insn_comments = []
@@ -753,6 +770,20 @@ def parse_kfunc_pairs(initializer_list):
         idx = int(pair[1].mtype('number_literal').text)
         result[name].append(idx)
     return dict(result)
+
+def parse_flags(text):
+    sleepable = False
+    flag = None
+    match text:
+        case 'BPF_F_SLEEPABLE':
+            sleepable = True
+        case 'F_LOAD_WITH_STRICT_ALIGNMENT':
+            flag = 'BPF_F_STRICT_ALIGNMENT'
+        case 'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS':
+            flag = 'BPF_F_ANY_ALIGNMENT'
+        case _:
+            logging.warning(f'Unsupported .flag: {text}')
+    return flag, sleepable
 
 def match_test_info(node):
     node.mtype('initializer_list')
@@ -801,7 +832,10 @@ def match_test_info(node):
                 info.map_fixups[map_name] = convert_int_list(value)
             case 'flags':
                 text = value.mtype('identifier').text
-                info.flags.append(FLAGS_MAP.get(text, text))
+                flag, sleepable = parse_flags(text)
+                if flag:
+                    info.flags = [flag]
+                info.sleepable = sleepable
             case 'prog_type':
                 info.prog_type = value.mtype('identifier').text
             case 'retval':
@@ -810,6 +844,10 @@ def match_test_info(node):
                 info.retval_unpriv = value.text
             case 'fixup_kfunc_btf_id':
                 info.kfunc_pairs = parse_kfunc_pairs(value.mtype('initializer_list'))
+            case 'expected_attach_type':
+                info.expected_attach_type = value.mtype('identifier').text
+            case 'kfunc':
+                info.kfunc = value.mtype('string_literal').text.strip('"')
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
@@ -1179,14 +1217,42 @@ def reindent_comment(text, level, indent_at_end=True):
         result += indent
     return result
 
-def convert_prog_type(text):
-    if text is None:
-        return "socket"
-    if text not in SEC_BY_PROG_TYPE:
-        err = f'Unsupported prog_type {text}'
+def convert_prog_type(info):
+    prog_type = info.prog_type
+    attach_type = info.expected_attach_type
+
+    def error(err = None):
+        if not err:
+            nonlocal prog_type, attach_type
+            err = f'Unsupported prog_type / attach_type combo: {prog_type} / {attach_type}'
         logging.warning(err)
         return err
-    return SEC_BY_PROG_TYPE[text]
+
+    if not prog_type and not attach_type:
+        return "socket"
+
+    if prog_type and not attach_type:
+        if prog_type not in SEC_BY_PROG_TYPE:
+            return error()
+        return SEC_BY_PROG_TYPE[prog_type]
+
+    if sec := SEC_BY_PROG_AND_ATTACH_TYPE.get((prog_type, attach_type), None):
+        acc = sec.base_name
+
+        if info.sleepable:
+            if not sec.may_sleep:
+                return error(f'{prog_type}/{attach_type} may not sleep');
+            acc += ".s"
+
+        if sec.need_kfunc:
+            if not info.kfunc:
+                return error(f'{prog_type}/{attach_type} need kfunc')
+            acc += "/"
+            acc += info.kfunc
+
+        return acc
+
+    return error()
 
 def mk_func_base_name(text):
     text = text.lower()
@@ -1341,7 +1407,7 @@ def render_test_info(info, options):
     else:
         initial_comment = ''
     attrs = collect_attrs(info)
-    sec = convert_prog_type(info.prog_type)
+    sec = convert_prog_type(info)
     rendered_funcs[0] = f'''
 {initial_comment}SEC("{sec}")
 {render_attrs(attrs)}
