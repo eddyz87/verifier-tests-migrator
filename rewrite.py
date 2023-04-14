@@ -704,6 +704,7 @@ class TestInfo:
         self.func_name = None
         self.insns = []
         self.map_fixups = {}
+        self.prog_fixups = {}
         self.result = Verdict.REJECT
         self.result_unpriv = None
         self.errstr = None
@@ -718,6 +719,7 @@ class TestInfo:
         self.sleepable = False
         self.expected_attach_type = None
         self.kfunc = None
+        self.sec = None
 
 def parse_test_result(node, field_name):
     match node.text:
@@ -842,6 +844,10 @@ def match_test_info(node):
                 info.result_unpriv = parse_test_result(value, 'result_unpriv')
             case map_fixup if (map_name := map_fixup.removeprefix('fixup_')) in MAPS:
                 info.map_fixups[map_name] = convert_int_list(value)
+            case 'fixup_prog1':
+                info.prog_fixups['map_prog1'] = convert_int_list(value)
+            case 'fixup_prog2':
+                info.prog_fixups['map_prog2'] = convert_int_list(value)
             case 'flags':
                 text = value.mtype('identifier').text
                 flag, sleepable = parse_flags(text)
@@ -863,8 +869,12 @@ def match_test_info(node):
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
+
+    info.sec = convert_prog_type(info)
     map_locations = set()
     for locations in info.map_fixups.values():
+        map_locations |= set(locations)
+    for locations in info.prog_fixups.values():
         map_locations |= set(locations)
     kfunc_locations = {}
     for kfunc, locations in info.kfunc_pairs.items():
@@ -1034,9 +1044,17 @@ EXECUTABLE_PROG_TYPES = set([
 ])
 
 def patch_test_info(info, options):
-    for map_name in info.map_fixups.keys():
-        for i in info.map_fixups[map_name]:
+    def patch_locations(map_name, locations):
+        for i in locations:
             info.insns[i] = patch_ld_map_fd(info.insns[i], map_name, info.name)
+
+    for map_name, locations in info.map_fixups.items():
+        patch_locations(map_name, locations)
+
+    for map_name, locations in info.prog_fixups.items():
+        true_map_name = f'{map_name}_{info.sec}'
+        patch_locations(true_map_name, locations)
+
     if options.replace_st_mem:
         info.insns = replace_st_mem(info.insns)
     if (not info.retval
@@ -1137,6 +1155,50 @@ def format_insns(insns, options):
             write_line("")
         return out.getvalue()
 
+def convert_prog_type(info):
+    prog_type = info.prog_type
+    attach_type = info.expected_attach_type
+
+    def error(err = None):
+        if not err:
+            nonlocal prog_type, attach_type
+            err = f'Unsupported prog_type / attach_type combo: {prog_type} / {attach_type}'
+        logging.warning(err)
+        return err
+
+    if not prog_type and not attach_type:
+        return "socket"
+
+    if prog_type and not attach_type:
+        if prog_type not in SEC_BY_PROG_TYPE:
+            return error()
+        return SEC_BY_PROG_TYPE[prog_type]
+
+    if sec := SEC_BY_PROG_AND_ATTACH_TYPE.get((prog_type, attach_type), None):
+        acc = sec.base_name
+
+        if info.sleepable:
+            if not sec.may_sleep:
+                return error(f'{prog_type}/{attach_type} may not sleep');
+            acc += ".s"
+
+        if sec.need_kfunc:
+            if not info.kfunc:
+                return error(f'{prog_type}/{attach_type} need kfunc')
+            acc += "/"
+            acc += info.kfunc
+
+        return acc
+
+    return error()
+
+OK_FOR_UNPRIV_PROG_TYPES = [None, 'BPF_PROG_TYPE_SOCKET_FILTER', 'BPF_PROG_TYPE_CGROUP_SKB']
+OK_FOR_UNPRIV_SECS = []
+for tp in OK_FOR_UNPRIV_PROG_TYPES:
+    info = TestInfo()
+    info.prog_type = tp
+    OK_FOR_UNPRIV_SECS.append(convert_prog_type(info))
+
 def collect_attrs(info):
     def attrs_for_verdict(verdict, unpriv):
         sfx = '_unpriv' if unpriv else ''
@@ -1163,7 +1225,7 @@ def collect_attrs(info):
     attrs.append(Newline())
     attr('result'       , lambda result: attrs_for_verdict(result, False))
     attr('errstr'       , lambda errstr: f'__msg({errstr})')
-    if info.prog_type in [None, 'BPF_PROG_TYPE_SOCKET_FILTER', 'BPF_PROG_TYPE_CGROUP_SKB']:
+    if info.prog_type in OK_FOR_UNPRIV_PROG_TYPES:
         if info.errstr:
             attrs.append(Newline())
         if (info.result_unpriv is None and info.errstr_unpriv is None):
@@ -1234,43 +1296,6 @@ def reindent_comment(text, level, indent_at_end=True):
     if indent_at_end:
         result += indent
     return result
-
-def convert_prog_type(info):
-    prog_type = info.prog_type
-    attach_type = info.expected_attach_type
-
-    def error(err = None):
-        if not err:
-            nonlocal prog_type, attach_type
-            err = f'Unsupported prog_type / attach_type combo: {prog_type} / {attach_type}'
-        logging.warning(err)
-        return err
-
-    if not prog_type and not attach_type:
-        return "socket"
-
-    if prog_type and not attach_type:
-        if prog_type not in SEC_BY_PROG_TYPE:
-            return error()
-        return SEC_BY_PROG_TYPE[prog_type]
-
-    if sec := SEC_BY_PROG_AND_ATTACH_TYPE.get((prog_type, attach_type), None):
-        acc = sec.base_name
-
-        if info.sleepable:
-            if not sec.may_sleep:
-                return error(f'{prog_type}/{attach_type} may not sleep');
-            acc += ".s"
-
-        if sec.need_kfunc:
-            if not info.kfunc:
-                return error(f'{prog_type}/{attach_type} need kfunc')
-            acc += "/"
-            acc += info.kfunc
-
-        return acc
-
-    return error()
 
 def mk_func_base_name(text):
     text = text.lower()
@@ -1428,9 +1453,8 @@ def render_test_info(info, options):
     else:
         initial_comment = ''
     attrs = collect_attrs(info)
-    sec = convert_prog_type(info)
     rendered_funcs[0] = f'''
-{initial_comment}SEC("{sec}")
+{initial_comment}SEC("{info.sec}")
 {render_attrs(attrs)}
 {rendered_funcs[0].strip()}
 '''.lstrip()
@@ -1827,7 +1851,7 @@ MACRO_DEFS = {
 	"r4 = 0;"			\\
 	"r5 = 0;"			\\
 	"call %[" #func "];"
-'''
+'''.lstrip()
 }
 
 def print_macro_definitions(out, macros):
@@ -1883,7 +1907,108 @@ void __kfunc_btf_root()
 }}
 '''.lstrip())
 
+def print_prog_map_definitions(out, used_prog_maps):
+    secs = {}
+    for map_name, sec in used_prog_maps:
+        if sec not in secs:
+            secs[sec] = set()
+        secs[sec].add(map_name)
+
+    for sec, map_names in secs.items():
+        prog1 = 'map_prog1' in map_names
+        prog2 = 'map_prog2' in map_names
+        suffix = f'_{sec}'
+        if sec in OK_FOR_UNPRIV_SECS:
+            auxiliary_unpriv = ' __auxiliary_unpriv'
+        else:
+            auxiliary_unpriv = ''
+
+        out.write(f'''
+void dummy_prog_42{suffix}(void);
+void dummy_prog_24{suffix}(void);
+'''.lstrip())
+
+        if prog1:
+            out.write(f'''
+void dummy_prog_loop1{suffix}(void);
+'''.lstrip())
+
+        if prog2:
+            out.write(f'''
+void dummy_prog_loop2{suffix}(void);
+'''.lstrip())
+
+        if prog1:
+            out.write(f'''
+struct {{
+	__uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+	__uint(max_entries, 4);
+	__uint(key_size, sizeof(int));
+	__array(values, void (void));
+}} map_prog1{suffix} SEC(".maps") = {{
+	.values = {{
+		[0] = (void *) &dummy_prog_42{suffix},
+		[1] = (void *) &dummy_prog_loop1{suffix},
+		[2] = (void *) &dummy_prog_24{suffix},
+	}},
+}};
+''')
+
+        if prog2:
+            out.write(f'''
+struct {{
+	__uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+	__uint(max_entries, 8);
+	__uint(key_size, sizeof(int));
+	__array(values, void (void));
+}} map_prog2{suffix} SEC(".maps") = {{
+	.values = {{
+		[1] = (void *) &dummy_prog_loop2{suffix},
+		[2] = (void *) &dummy_prog_24{suffix},
+		[7] = (void *) &dummy_prog_42{suffix},
+	}},
+}};
+''')
+
+        out.write(f'''
+SEC("{sec}")
+__auxiliary{auxiliary_unpriv}
+__naked void dummy_prog_42{suffix}(void) {{
+	asm volatile ("r0 = 42; exit;");
+}}
+
+SEC("{sec}")
+__auxiliary{auxiliary_unpriv}
+__naked void dummy_prog_24{suffix}(void) {{
+	asm volatile ("r0 = 24; exit;");
+}}
+''')
+
+        def dummy_prog_loop(self_name, map_name):
+            out.write(f'''
+SEC("{sec}")
+__auxiliary{auxiliary_unpriv}
+__naked void {self_name}(void) {{
+	asm volatile ("			\\
+	r3 = 1;				\\
+	r2 = %[{map_name}] ll;	\\
+	call %[bpf_tail_call];		\\
+	r0 = 41;			\\
+	exit;				\\
+"	:
+	: __imm(bpf_tail_call),
+	  __imm_addr({map_name})
+	: __clobber_all);
+}}
+''')
+
+        if prog1:
+            dummy_prog_loop(f'dummy_prog_loop1{suffix}', f'map_prog1{suffix}')
+        if prog2:
+            dummy_prog_loop(f'dummy_prog_loop2{suffix}', f'map_prog2{suffix}')
+
 def print_auxiliary_definitions(out, infos):
+    used_prog_maps = set()
     used_maps = set()
     kfuncs = set()
     macros = set()
@@ -1892,6 +2017,9 @@ def print_auxiliary_definitions(out, infos):
         for map_name, fixups in info.map_fixups.items():
             if fixups:
                 used_maps.add(map_name)
+        for map_name, fixups in info.prog_fixups.items():
+            if fixups:
+                used_prog_maps.add((map_name, info.sec))
         kfuncs |= info.kfunc_pairs.keys()
         for insn in info.insns:
             if m := getattr(insn, 'macro', None):
@@ -1899,13 +2027,17 @@ def print_auxiliary_definitions(out, infos):
 
     if macros:
         print_macro_definitions(out, macros)
+
     if kfuncs:
-        out.write("\n")
+        out.write('\n')
         print_kfunc_definitions(out, kfuncs)
-    if len(kfuncs) > 0 and len(used_maps) > 0:
-        out.write("\n")
+
     if used_maps:
         print_map_definitions(out, used_maps)
+
+    if used_prog_maps:
+        out.write('\n')
+        print_prog_map_definitions(out, used_prog_maps)
 
 @dataclass
 class Options:

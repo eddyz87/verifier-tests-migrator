@@ -991,6 +991,126 @@ __naked void foobar(void)
 
 char _license[] SEC("license") = "GPL";''')
 
+    def test_prog_maps(self):
+        self._aux('''
+{
+	"birim-burum",
+	.insns = {
+	BPF_MOV64_REG(BPF_REG_7, BPF_REG_1),
+	BPF_MOV64_IMM(BPF_REG_3, 3),
+	BPF_LD_MAP_FD(BPF_REG_2, 0),
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_tail_call),
+
+	BPF_MOV64_REG(BPF_REG_1, BPF_REG_7),
+	BPF_MOV64_IMM(BPF_REG_3, 3),
+	BPF_LD_MAP_FD(BPF_REG_2, 0),
+	BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0, BPF_FUNC_tail_call),
+	},
+	.fixup_prog1 = { 2 },
+	.fixup_prog2 = { 7 },
+	.result = ACCEPT,
+},
+        ''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+void dummy_prog_42_socket(void);
+void dummy_prog_24_socket(void);
+void dummy_prog_loop1_socket(void);
+void dummy_prog_loop2_socket(void);
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+	__uint(max_entries, 4);
+	__uint(key_size, sizeof(int));
+	__array(values, void (void));
+} map_prog1_socket SEC(".maps") = {
+	.values = {
+		[0] = (void *) &dummy_prog_42_socket,
+		[1] = (void *) &dummy_prog_loop1_socket,
+		[2] = (void *) &dummy_prog_24_socket,
+	},
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+	__uint(max_entries, 8);
+	__uint(key_size, sizeof(int));
+	__array(values, void (void));
+} map_prog2_socket SEC(".maps") = {
+	.values = {
+		[1] = (void *) &dummy_prog_loop2_socket,
+		[2] = (void *) &dummy_prog_24_socket,
+		[7] = (void *) &dummy_prog_42_socket,
+	},
+};
+
+SEC("socket")
+__auxiliary __auxiliary_unpriv
+__naked void dummy_prog_42_socket(void) {
+	asm volatile ("r0 = 42; exit;");
+}
+
+SEC("socket")
+__auxiliary __auxiliary_unpriv
+__naked void dummy_prog_24_socket(void) {
+	asm volatile ("r0 = 24; exit;");
+}
+
+SEC("socket")
+__auxiliary __auxiliary_unpriv
+__naked void dummy_prog_loop1_socket(void) {
+	asm volatile ("			\\
+	r3 = 1;				\\
+	r2 = %[map_prog1_socket] ll;	\\
+	call %[bpf_tail_call];		\\
+	r0 = 41;			\\
+	exit;				\\
+"	:
+	: __imm(bpf_tail_call),
+	  __imm_addr(map_prog1_socket)
+	: __clobber_all);
+}
+
+SEC("socket")
+__auxiliary __auxiliary_unpriv
+__naked void dummy_prog_loop2_socket(void) {
+	asm volatile ("			\\
+	r3 = 1;				\\
+	r2 = %[map_prog2_socket] ll;	\\
+	call %[bpf_tail_call];		\\
+	r0 = 41;			\\
+	exit;				\\
+"	:
+	: __imm(bpf_tail_call),
+	  __imm_addr(map_prog2_socket)
+	: __clobber_all);
+}
+
+SEC("socket")
+__description("birim-burum")
+__success __success_unpriv __retval(0)
+__naked void birim_burum(void)
+{
+	asm volatile ("					\\
+	r7 = r1;					\\
+	r3 = 3;						\\
+	r2 = %[map_prog1_socket] ll;			\\
+	call %[bpf_tail_call];				\\
+	r1 = r7;					\\
+	r3 = 3;						\\
+	r2 = %[map_prog2_socket] ll;			\\
+	call %[bpf_tail_call];				\\
+"	:
+	: __imm(bpf_tail_call),
+	  __imm_addr(map_prog1_socket),
+	  __imm_addr(map_prog2_socket)
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''')
+
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
 long x[] = {{
