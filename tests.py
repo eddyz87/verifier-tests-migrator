@@ -942,6 +942,55 @@ __naked void pseudocall(void)
 char _license[] SEC("license") = "GPL";''',
                 Options(string_per_insn=True))
 
+    def test_bpf_sk_lookup(self):
+        self._aux('''
+{
+	"foobar",
+	.insns = {
+            BPF_SK_LOOKUP(skc_lookup_tcp),
+            BPF_JMP_A(-14),
+	},
+	.result = ACCEPT,
+},
+        ''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+#define BPF_SK_LOOKUP(func) \\
+	/* struct bpf_sock_tuple tuple = {} */ \\
+	"r2 = 0;"			\\
+	"*(u32*)(r10 - 8) = r2;"	\\
+	"*(u64*)(r10 - 16) = r2;"	\\
+	"*(u64*)(r10 - 24) = r2;"	\\
+	"*(u64*)(r10 - 32) = r2;"	\\
+	"*(u64*)(r10 - 40) = r2;"	\\
+	"*(u64*)(r10 - 48) = r2;"	\\
+	/* sk = func(ctx, &tuple, sizeof tuple, 0, 0) */ \\
+	"r2 = r10;"			\\
+	"r2 += -48;"			\\
+	"r3 = %[sizeof_bpf_sock_tuple];"\\
+	"r4 = 0;"			\\
+	"r5 = 0;"			\\
+	"call %[" #func "];"
+
+SEC("socket")
+__description("foobar")
+__success __success_unpriv __retval(0)
+__naked void foobar(void)
+{
+	asm volatile (
+"l0_%=:"
+	BPF_SK_LOOKUP(bpf_skc_lookup_tcp)
+	"goto l0_%=;"
+	:
+	: __imm(bpf_skc_lookup_tcp),
+	  __imm_const(sizeof_bpf_sock_tuple, sizeof(struct bpf_sock_tuple))
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''')
+
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
 long x[] = {{

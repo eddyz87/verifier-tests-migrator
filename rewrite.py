@@ -5,6 +5,7 @@ import io
 import re
 import sys
 import cfg
+import copy
 import logging
 import argparse
 import tree_sitter
@@ -357,7 +358,7 @@ class InsnMatchers:
         dst = m.reg()
         imm = m.expr()
         insn = d('{dst} = {imm} ll;', 'w')
-        insn.double_size = True
+        insn.size = 2
         return insn
 
     def BPF_LDX_MEM(m):
@@ -440,7 +441,7 @@ class InsnMatchers:
             dst = m.reg()
             imm = m.expr()
             insn = d('{dst} = {imm} ll;')
-            insn.double_size = True
+            insn.size = 2
             insn.dst_action = 'w'
             return insn
         else:
@@ -559,6 +560,16 @@ class InsnMatchers:
             raise MatchError(f'Unexpected endian size: {sz}')
         op = f'{pfx}{sz}'
         return d('{dst} = {op} {dst};', 'rw')
+
+    def BPF_SK_LOOKUP(m):
+        func = m._ident()
+        func = Imm(f'bpf_{func}')
+        insn = d('BPF_SK_LOOKUP({func})')
+        insn.vars['imm1'] = Imm('sizeof(struct bpf_sock_tuple)')
+        insn.size = 13
+        insn.macro = 'BPF_SK_LOOKUP'
+        insn.call_like = True
+        return insn
 
 def func_matchers_map():
     func_matchers = defaultdict(list)
@@ -752,10 +763,11 @@ def convert_insn_list(insns_to_convert, map_locations, kfunc_locations):
             converted[0].comment = merge_comment_nodes(insn_comments)
             for cinsn in converted:
                 insns.append(cinsn)
-                if getattr(cinsn, 'double_size', False):
-                    dummy = DString('__dummy__', {})
-                    dummy.dummy = True
-                    insns.append(dummy)
+                if sz := getattr(cinsn, 'size', 1):
+                    for _ in range(0, sz-1):
+                        dummy = DString('__dummy__', {})
+                        dummy.dummy = True
+                        insns.append(dummy)
             insn_comments = []
     if len(insns) > 0:
         insns[-1].after_comment = merge_comment_nodes(insn_comments)
@@ -988,7 +1000,10 @@ def rename_imms(insns):
             if imm not in imm_to_name:
                 imm_to_name[imm] = gen_imm_name(imm, counters)
             imm_name = imm_to_name[imm]
-            insn.vars[var_name] = f'%[{imm_name}]'
+            if getattr(insn, 'macro', False):
+                insn.vars[var_name] = imm_name
+            else:
+                insn.vars[var_name] = f'%[{imm_name}]'
     return imm_to_name
 
 def format_imms(imm_to_name):
@@ -1072,11 +1087,14 @@ def format_insns(insns, options):
     line_ending += '\\\n'
 
     with StringIOWrapper() as out:
-        def write_line(text, is_comment=False):
+        def write_line(text, is_comment=False, is_macro=False):
             if options.string_per_insn:
                 if not is_comment:
                     m = re.match(r'^(\t?)(.*)$', text)
-                    text = f'{m[1]}"{m[2]}"'
+                    if is_macro:
+                        text = f'{m[1]}{m[2]}'
+                    else:
+                        text = f'{m[1]}"{m[2]}"'
                 out.write(text)
                 out.write('\n')
             else:
@@ -1113,7 +1131,7 @@ def format_insns(insns, options):
                     write_line(text)
             else:
                 label_line = False
-                write_line('\t' + text)
+                write_line('\t' + text, is_macro=getattr(insn, 'macro', False))
             write_comment(getattr(insn, 'after_comment', None), text)
         if label_line:
             write_line("")
@@ -1389,6 +1407,9 @@ def render_func(base_name, name, insns, main, insns_comments, options):
 '''.lstrip()
 
 def render_test_info(info, options):
+    if any((getattr(insn, 'macro', False) for insn in info.insns)):
+        options = copy.copy(options)
+        options.string_per_insn = True
     funcs = slice_into_functions(info.name, info.insns)
     rendered_funcs = []
     for i, func in enumerate(funcs):
@@ -1788,6 +1809,32 @@ struct {
 
 }
 
+MACRO_DEFS = {
+    'BPF_SK_LOOKUP': '''
+#define BPF_SK_LOOKUP(func) \\
+	/* struct bpf_sock_tuple tuple = {} */ \\
+	"r2 = 0;"			\\
+	"*(u32*)(r10 - 8) = r2;"	\\
+	"*(u64*)(r10 - 16) = r2;"	\\
+	"*(u64*)(r10 - 24) = r2;"	\\
+	"*(u64*)(r10 - 32) = r2;"	\\
+	"*(u64*)(r10 - 40) = r2;"	\\
+	"*(u64*)(r10 - 48) = r2;"	\\
+	/* sk = func(ctx, &tuple, sizeof tuple, 0, 0) */ \\
+	"r2 = r10;"			\\
+	"r2 += -48;"			\\
+	"r3 = %[sizeof_bpf_sock_tuple];"\\
+	"r4 = 0;"			\\
+	"r5 = 0;"			\\
+	"call %[" #func "];"
+'''
+}
+
+def print_macro_definitions(out, macros):
+    for macro in macros:
+        out.write('\n')
+        out.write(MACRO_DEFS[macro].lstrip())
+
 def print_map_definitions(out, used_maps):
     printed = set()
 
@@ -1839,13 +1886,19 @@ void __kfunc_btf_root()
 def print_auxiliary_definitions(out, infos):
     used_maps = set()
     kfuncs = set()
+    macros = set()
 
     for info in infos:
         for map_name, fixups in info.map_fixups.items():
             if fixups:
                 used_maps.add(map_name)
         kfuncs |= info.kfunc_pairs.keys()
+        for insn in info.insns:
+            if m := getattr(insn, 'macro', None):
+                macros.add(m)
 
+    if macros:
+        print_macro_definitions(out, macros)
     if kfuncs:
         out.write("\n")
         print_kfunc_definitions(out, kfuncs)
