@@ -1222,7 +1222,7 @@ def format_insns(insns, options):
             write_comment(getattr(insn, 'comment', None), text)
             is_label = text.endswith(':')
             if is_label:
-                if len(text) < 7 and not options.string_per_insn:
+                if len(text) < 8 and not options.string_per_insn:
                     label_line = True
                     ensure_quotes()
                     out.write(text)
