@@ -1137,6 +1137,36 @@ __naked void foobar(void)
 
 char _license[] SEC("license") = "GPL";''')
 
+    def test_insn_processed(self):
+        self._aux('''
+{
+	"foobar",
+	.insns = { BPF_EXIT_INSN() },
+        /* comment */
+        .insn_processed = 42,
+	.result = ACCEPT,
+},
+''',
+                  '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("socket")
+__description("foobar")
+__success
+/* comment */
+__msg("processed 42 insns")
+__success_unpriv __msg_unpriv("") __log_level(1) __retval(0)
+__naked void foobar(void)
+{
+	asm volatile ("					\\
+	exit;						\\
+"	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''')
+
 def insns_from_string(text):
     root = NodeWrapper(parse_c_string(f'''
 long x[] = {{

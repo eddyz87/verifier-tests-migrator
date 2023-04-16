@@ -720,6 +720,7 @@ class TestInfo:
         self.expected_attach_type = None
         self.kfunc = None
         self.sec = None
+        self.insn_processed = None
 
 def parse_test_result(node, field_name):
     match node.text:
@@ -868,6 +869,8 @@ def match_test_info(node):
                 info.expected_attach_type = value.mtype('identifier').text
             case 'kfunc':
                 info.kfunc = value.mtype('string_literal').text.strip('"')
+            case 'insn_processed':
+                info.insn_processed = value.text
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
@@ -1227,8 +1230,9 @@ def collect_attrs(info):
     attrs.append(Newline())
     attr('result'       , lambda result: attrs_for_verdict(result, False))
     attr('errstr'       , lambda errstr: f'__msg({errstr})')
+    attr('insn_processed', lambda insn_processed: f'__msg("processed {insn_processed} insns")')
     if info.prog_type in OK_FOR_UNPRIV_PROG_TYPES:
-        if info.errstr:
+        if info.errstr or info.insn_processed:
             attrs.append(Newline())
         if (info.result_unpriv is None and info.errstr_unpriv is None):
             match info.result:
@@ -1239,12 +1243,16 @@ def collect_attrs(info):
         else:
             attr('result_unpriv', lambda result: attrs_for_verdict(result, True))
             attr('errstr_unpriv', lambda errstr: f'__msg_unpriv({errstr})')
+        if info.insn_processed and not info.errstr_unpriv:
+            attrs.append('__msg_unpriv("")')
     if info.errstr or info.errstr_unpriv:
         attrs.append(Newline())
     if Verdict.VERBOSE_ACCEPT in [info.result, info.result_unpriv]:
         if Verdict.ACCEPT in [info.result, info.result_unpriv]:
             logging.warning(f'Log level differs between priv and unpriv for {info.name}')
         attrs.append('__log_level(2)')
+    elif info.insn_processed:
+        attrs.append('__log_level(1)')
     attr('retval'       , lambda retval: f'__retval({retval})')
     attr('retval_unpriv', lambda retval: f'__retval_unpriv({retval})')
     attr('flags'        , lambda flags : list(map(lambda flag: f'__flag({flag})', flags)))
