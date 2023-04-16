@@ -388,13 +388,13 @@ __description("atomic")
 __failure
 /* 1g */ /* 2g */
 /* 3g */
-__msg('foo')
+__msg("foo")
 /* 1f */ /* 2f */
 /* 3f */
 __failure_unpriv
 /* 1h */ /* 2h */
 /* 3h */
-__msg_unpriv('bar')
+__msg_unpriv("bar")
 /* 1i */ /* 2i */
 /* 3i */
 __retval(1)
@@ -564,6 +564,9 @@ char _license[] SEC("license") = "GPL";''')
 { "t7", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_SOCKET_FILTER },
 { "t8", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_CGROUP_SKB },
 { "t9", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_LSM },
+{ "t10", .result = ACCEPT, .prog_type = BPF_PROG_TYPE_LSM,
+         .errstr = "foo\\
+	bar" },
 ''',
                   '''
 #include <linux/bpf.h>
@@ -650,6 +653,16 @@ SEC("lsm")
 __description("t9")
 __success
 __naked void t9(void)
+{
+	asm volatile ("" ::: __clobber_all);
+}
+
+SEC("lsm")
+__description("t10")
+__success
+__msg("foo")
+__msg("bar")
+__naked void t10(void)
 {
 	asm volatile ("" ::: __clobber_all);
 }

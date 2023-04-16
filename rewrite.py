@@ -1304,10 +1304,23 @@ def collect_attrs(info):
                 case list(l):
                     attrs.extend(l)
 
+    def errstr_attr(field, func_name):
+        if text := info.comments[field]:
+            attrs.append(Comment(text))
+        if val := getattr(info, field, None):
+            pats =  val[1:-1].split('\t')
+            if len(pats) > 1 and len(attrs) > 0:
+                attrs.append(Newline())
+            for pat in pats:
+                pat = re.sub(r'\\\n$', '', pat)
+                attrs.append(f'{func_name}("{pat}")')
+                if len(pats) > 1:
+                    attrs.append(Newline())
+
     attr('name'         , lambda name  : f'__description({name})')
     attrs.append(Newline())
     attr('result'       , lambda result: attrs_for_verdict(result, False))
-    attr('errstr'       , lambda errstr: f'__msg({errstr})')
+    errstr_attr('errstr', '__msg')
     attr('insn_processed', lambda insn_processed: f'__msg("processed {insn_processed} insns")')
     if info.prog_type in OK_FOR_UNPRIV_PROG_TYPES:
         if info.errstr or info.insn_processed:
@@ -1320,7 +1333,7 @@ def collect_attrs(info):
                     attrs.append('__failure_unpriv')
         else:
             attr('result_unpriv', lambda result: attrs_for_verdict(result, True))
-            attr('errstr_unpriv', lambda errstr: f'__msg_unpriv({errstr})')
+            errstr_attr('errstr_unpriv', '__msg_unpriv')
         if info.insn_processed and not info.errstr_unpriv:
             attrs.append('__msg_unpriv("")')
     if info.errstr or info.errstr_unpriv:
