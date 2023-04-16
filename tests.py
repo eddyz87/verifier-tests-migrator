@@ -528,8 +528,7 @@ __description("t1")
 __failure __failure_unpriv
 __naked void t1(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("socket")
@@ -537,8 +536,7 @@ __description("t2")
 __success __success_unpriv __retval(0)
 __naked void t2(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("socket")
@@ -546,8 +544,7 @@ __description("t2.1")
 __success __success_unpriv
 __naked void t2_1(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("socket")
@@ -555,8 +552,7 @@ __description("t3")
 __success __success_unpriv __log_level(2) __retval(0)
 __naked void t3(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("socket")
@@ -564,8 +560,7 @@ __description("t4")
 __failure __failure_unpriv
 __naked void t4(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("socket")
@@ -575,8 +570,7 @@ __success_unpriv
 __retval(0)
 __naked void t5(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("socket")
@@ -586,8 +580,7 @@ __failure_unpriv __msg_unpriv("y")
 __retval(0)
 __naked void t6(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("socket")
@@ -595,8 +588,7 @@ __description("t7")
 __success __success_unpriv __retval(0)
 __naked void t7(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("cgroup/skb")
@@ -604,8 +596,7 @@ __description("t8")
 __success __success_unpriv __retval(0)
 __naked void t8(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 SEC("lsm")
@@ -613,8 +604,7 @@ __description("t9")
 __success
 __naked void t9(void)
 {
-	asm volatile ("					\\
-"	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";''')
@@ -890,8 +880,7 @@ __description("pseudocall")
 __success
 __naked void pseudocall(void)
 {
-	asm volatile (
-	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";''',
@@ -917,8 +906,7 @@ __description("pseudocall")
 __success
 __naked void pseudocall(void)
 {
-	asm volatile (
-	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";''',
@@ -945,8 +933,7 @@ __description("pseudocall")
 __success
 __naked void pseudocall(void)
 {
-	asm volatile (
-	::: __clobber_all);
+	asm volatile ("" ::: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";''',
@@ -959,6 +946,16 @@ char _license[] SEC("license") = "GPL";''',
 	.insns = {
             BPF_SK_LOOKUP(skc_lookup_tcp),
             BPF_JMP_A(-14),
+	},
+	.result = ACCEPT,
+},
+{
+	"buz",
+	.insns = {
+            BPF_SK_LOOKUP(skc_lookup_tcp),
+	    BPF_EXIT_INSN(),
+            BPF_SK_LOOKUP(skc_lookup_tcp),
+	    BPF_EXIT_INSN(),
 	},
 	.result = ACCEPT,
 },
@@ -989,17 +986,85 @@ __description("foobar")
 __success __success_unpriv __retval(0)
 __naked void foobar(void)
 {
+	asm volatile ("					\\
+l0_%=:"	BPF_SK_LOOKUP(bpf_skc_lookup_tcp)
+"	goto l0_%=;					\\
+"	:
+	: __imm(bpf_skc_lookup_tcp),
+	  __imm_const(sizeof_bpf_sock_tuple, sizeof(struct bpf_sock_tuple))
+	: __clobber_all);
+}
+
+SEC("socket")
+__description("buz")
+__success __success_unpriv __retval(0)
+__naked void buz(void)
+{
 	asm volatile (
-"l0_%=:"
 	BPF_SK_LOOKUP(bpf_skc_lookup_tcp)
-	"goto l0_%=;"
-	:
+"	exit;						\\
+"	BPF_SK_LOOKUP(bpf_skc_lookup_tcp)
+"	exit;						\\
+"	:
 	: __imm(bpf_skc_lookup_tcp),
 	  __imm_const(sizeof_bpf_sock_tuple, sizeof(struct bpf_sock_tuple))
 	: __clobber_all);
 }
 
 char _license[] SEC("license") = "GPL";''')
+
+    def test_bpf_sk_lookup_string_per_insn(self):
+        self._aux('''
+{
+	"buz",
+	.insns = {
+            BPF_SK_LOOKUP(skc_lookup_tcp),
+	    BPF_EXIT_INSN(),
+            BPF_SK_LOOKUP(skc_lookup_tcp),
+	    BPF_EXIT_INSN(),
+	},
+	.result = ACCEPT,
+},
+        ''', '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+#define BPF_SK_LOOKUP(func) \\
+	/* struct bpf_sock_tuple tuple = {} */ \\
+	"r2 = 0;"			\\
+	"*(u32*)(r10 - 8) = r2;"	\\
+	"*(u64*)(r10 - 16) = r2;"	\\
+	"*(u64*)(r10 - 24) = r2;"	\\
+	"*(u64*)(r10 - 32) = r2;"	\\
+	"*(u64*)(r10 - 40) = r2;"	\\
+	"*(u64*)(r10 - 48) = r2;"	\\
+	/* sk = func(ctx, &tuple, sizeof tuple, 0, 0) */ \\
+	"r2 = r10;"			\\
+	"r2 += -48;"			\\
+	"r3 = %[sizeof_bpf_sock_tuple];"\\
+	"r4 = 0;"			\\
+	"r5 = 0;"			\\
+	"call %[" #func "];"
+
+SEC("socket")
+__description("buz")
+__success __success_unpriv __retval(0)
+__naked void buz(void)
+{
+	asm volatile (
+	BPF_SK_LOOKUP(bpf_skc_lookup_tcp)
+	"exit;"
+	BPF_SK_LOOKUP(bpf_skc_lookup_tcp)
+	"exit;"
+	:
+	: __imm(bpf_skc_lookup_tcp),
+	  __imm_const(sizeof_bpf_sock_tuple, sizeof(struct bpf_sock_tuple))
+	: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''',
+                  Options(string_per_insn=True))
 
     def test_prog_maps(self):
         self._aux('''

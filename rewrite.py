@@ -721,6 +721,7 @@ class TestInfo:
         self.kfunc = None
         self.sec = None
         self.insn_processed = None
+        self.dont_run = False
 
 def parse_test_result(node, field_name):
     match node.text:
@@ -871,6 +872,8 @@ def match_test_info(node):
                 info.kfunc = value.mtype('string_literal').text.strip('"')
             case 'insn_processed':
                 info.insn_processed = value.text
+            case 'runs' if value.text == '-1':
+                info.dont_run = True
             case _:
                 logging.warning(f"Unsupported field '{field}' at {pair.start_point}:" +
                                 f" {value.text}")
@@ -1066,7 +1069,8 @@ def patch_test_info(info, options):
         and info.result in [Verdict.ACCEPT, Verdict.VERBOSE_ACCEPT]
         and (info.prog_type in EXECUTABLE_PROG_TYPES
            # Default prog type is 'socket' which is executable
-           or info.prog_type is None)):
+           or info.prog_type is None)
+        and not info.dont_run):
         info.retval = '0'
 
 ###############################
@@ -1102,16 +1106,45 @@ def similar_strings(a, b):
 
 def format_insns(insns, options):
     if len(insns) == 0:
-        return ''
+        return '""'
 
+    first_line = True
+    quotes_open = False
     line_ending = ''
     if options.newlines:
         line_ending += '\\n'
     line_ending += '\\\n'
 
+    def ensure_quotes():
+        nonlocal first_line
+        nonlocal quotes_open
+        nonlocal line_ending
+        if not quotes_open:
+            quotes_open = True
+            if first_line:
+                out.write(add_padding('"', 5))
+                out.write(line_ending)
+                first_line = False
+            else:
+                out.write('"')
+
+    def close_quotes():
+        nonlocal first_line
+        nonlocal quotes_open
+        if quotes_open:
+            quotes_open = False
+            out.write('"')
+        elif first_line:
+            out.write('\n')
+            first_line = False
+
     with StringIOWrapper() as out:
         def write_line(text, is_comment=False, is_macro=False):
             if options.string_per_insn:
+                nonlocal first_line
+                if first_line:
+                    out.write('\n')
+                    first_line = False
                 if not is_comment:
                     m = re.match(r'^(\t?)(.*)$', text)
                     if is_macro:
@@ -1121,8 +1154,14 @@ def format_insns(insns, options):
                 out.write(text)
                 out.write('\n')
             else:
-                out.write(add_padding(text))
-                out.write(line_ending)
+                if is_macro:
+                    close_quotes()
+                    out.write(text)
+                    out.write('\n')
+                else:
+                    ensure_quotes()
+                    out.write(add_padding(text))
+                    out.write(line_ending)
 
         def write_comment(text, insn_text):
             if not text:
@@ -1146,8 +1185,9 @@ def format_insns(insns, options):
             write_comment(getattr(insn, 'comment', None), text)
             is_label = text.endswith(':')
             if is_label:
-                if len(text) < 8 and not options.string_per_insn:
+                if len(text) < 7 and not options.string_per_insn:
                     label_line = True
+                    ensure_quotes()
                     out.write(text)
                 else:
                     label_line = False
@@ -1158,6 +1198,7 @@ def format_insns(insns, options):
             write_comment(getattr(insn, 'after_comment', None), text)
         if label_line:
             write_line("")
+        close_quotes()
         return out.getvalue()
 
 def convert_prog_type(info):
@@ -1409,16 +1450,11 @@ def rename_local_funcs(base_name, insns):
     return new_insns
 
 def render_func(base_name, name, insns, main, insns_comments, options):
-    if options.string_per_insn:
-        asm_volatile='asm volatile ('
-        asm_volatile_end = ''
-    else:
-        asm_volatile = add_padding(f'asm volatile ("', 6) + '\\'
-        asm_volatile_end = '"'
     insns = rename_local_funcs(base_name, insns)
     insns = insert_labels(insns, options)
     imms = rename_imms(insns)
     insn_text = format_insns(insns, options)
+    tail_pfx  = ' ' if insn_text == '""' else '\t'
     imms_text = format_imms(imms)
     noinline_text = "" if main else "__noinline "
     if main:
@@ -1436,15 +1472,11 @@ def render_func(base_name, name, insns, main, insns_comments, options):
     return f'''
 {attrs}void {name}(void)
 {{
-	{insns_comments}{asm_volatile}
-{insn_text}{asm_volatile_end}	:{tail});
+	{insns_comments}asm volatile ({insn_text}{tail_pfx}:{tail});
 }}
 '''.lstrip()
 
 def render_test_info(info, options):
-    if any((getattr(insn, 'macro', False) for insn in info.insns)):
-        options = copy.copy(options)
-        options.string_per_insn = True
     funcs = slice_into_functions(info.name, info.insns)
     rendered_funcs = []
     for i, func in enumerate(funcs):
