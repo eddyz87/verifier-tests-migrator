@@ -121,12 +121,12 @@ l0_%=:	r1 &= -4;					\\
 	w1 = -w1;					\\
 	r2 = -r2;					\\
 	w2 = -w2;					\\
-	// invalid LD_MAP_FD (it is not patched)	\\
+	/* invalid LD_MAP_FD (it is not patched) */	\\
 	.8byte %[ld_map_fd];				\\
 	.8byte 0;					\\
 	.8byte %[ld_map_fd_1];				\\
 	.8byte 0;					\\
-	// comment					\\
+	/* comment */					\\
 	*(u64*)(r0 + 0) = %[test_val_foo];		\\
 	call invalid_and_of_negative_number__1;		\\
 	exit;						\\
@@ -144,23 +144,23 @@ static __naked __noinline __attribute__((used))
 void invalid_and_of_negative_number__1(void)
 {
 	asm volatile ("					\\
-	//						\\
+	/* */						\\
 	r0 = le16 r0;					\\
 	r1 = le32 r1;					\\
 	r2 = le64 r2;					\\
-	//						\\
+	/* */						\\
 	r0 = be16 r0;					\\
 	r1 = be32 r1;					\\
 	r2 = be64 r2;					\\
-	//						\\
+	/* */						\\
 	r0 = le16 r0;					\\
 	r1 = le32 r1;					\\
 	r2 = le64 r2;					\\
-	//						\\
+	/* */						\\
 	r0 = be16 r0;					\\
 	r1 = be32 r1;					\\
 	r2 = be64 r2;					\\
-	//						\\
+	/* */						\\
 	exit;						\\
 "	::: __clobber_all);
 }
@@ -315,22 +315,22 @@ __naked void atomic(void)
 	asm volatile ("					\\
 	r1 = atomic_fetch_add((u64 *)(r10 - 8), r1);	\\
 	r2 = atomic_fetch_and((u64 *)(r10 - 8), r2);	\\
-	//						\\
+	/* */						\\
 	w3 = atomic_fetch_or((u32 *)(r10 - 8), w3);	\\
 	w4 = atomic_fetch_xor((u32 *)(r10 - 8), w4);	\\
-	//						\\
+	/* */						\\
 	lock *(u32 *)(r10 - 16) += w1;			\\
 	lock *(u32 *)(r10 - 16) &= w2;			\\
-	//						\\
+	/* */						\\
 	lock *(u64 *)(r10 - 16) |= r3;			\\
 	lock *(u64 *)(r10 - 16) ^= r4;			\\
-	//						\\
+	/* */						\\
 	r1 = xchg_64(r10 - 8, r1);			\\
 	w1 = xchg32_32(w10 - 4, w1);			\\
-	//						\\
+	/* */						\\
 	r0 = cmpxchg_64(r10 - 8, r0, r1);		\\
 	w0 = cmpxchg32_32(r10 - 4, w0, w1);		\\
-	//						\\
+	/* */						\\
 	lock *(u64 *)(r10 - 8) += r0;			\\
 "	::: __clobber_all);
 }
@@ -418,6 +418,49 @@ __naked void atomic(void)
 }
 
 char _license[] SEC("license") = "GPL";''', Options(replace_st_mem=True))
+
+    def test_rewrap_comments(self):
+        self._aux('''
+{
+	"atomic",
+	.insns = {
+	/* a */
+	// b
+	// c
+	/* d */
+	BPF_ST_MEM(BPF_DW, BPF_REG_1, -16, 77),
+	// a
+	// b
+	/* c */
+	},
+        .result = ACCEPT,
+},
+''',
+                  '''
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+#include "bpf_misc.h"
+
+SEC("socket")
+__description("atomic")
+__success __success_unpriv __retval(0)
+__naked void atomic(void)
+{
+	asm volatile ("					\\
+	/* a */						\\
+	/* b						\\
+	 * c						\\
+	 */						\\
+	/* d */						\\
+	*(u64*)(r1 - 16) = 77;				\\
+	/* a						\\
+	 * b						\\
+	 */						\\
+	/* c */						\\
+"	::: __clobber_all);
+}
+
+char _license[] SEC("license") = "GPL";''')
 
     def test_dummy_comments_removal(self):
         self._aux('''

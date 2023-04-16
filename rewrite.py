@@ -8,6 +8,7 @@ import cfg
 import copy
 import logging
 import argparse
+import itertools
 import tree_sitter
 from enum import Enum
 from dataclasses import dataclass
@@ -1102,6 +1103,28 @@ def add_padding(text, num_tabs=ASM_LINE_WIDTH_IN_TABS):
     width_in_tabs = len(text.replace('\t', ' '*8)) // 8
     return text + '\t'*(num_tabs - width_in_tabs)
 
+def rewrap_comment(lines):
+    comment_open = False
+    lines = map(lambda line: line.strip(), lines)
+    it = itertools.groupby(lines, lambda line: line.startswith(r'//'))
+    acc = []
+    for has_pfx, group in it:
+        group = list(group)
+        first_line = group[0]
+        if has_pfx:
+            if len(group) == 1:
+                acc.append('/*' + first_line[2:] + ' */')
+            else:
+                acc.append('/*' + first_line[2:])
+                for line in group[1:]:
+                    acc.append(' *' + line[2:])
+                acc.append('*/')
+        else:
+            for line in group:
+                acc.append(line)
+
+    return acc
+
 # Filter out a bunch of unnecessary comments coming from
 # tools/testing/selftests/bpf/verifier/spill_fill.c
 def similar_strings(a, b):
@@ -1183,7 +1206,7 @@ def format_insns(insns, options):
             if similar_strings(text, insn_text):
                 return
             pfx = ''
-            for line in text.split('\n'):
+            for line in rewrap_comment(text.split('\n')):
                 line = line.strip()
                 if line.startswith('/*'):
                     pfx = ''
