@@ -795,6 +795,8 @@ def parse_flags(text):
             flag = 'BPF_F_STRICT_ALIGNMENT'
         case 'F_NEEDS_EFFICIENT_UNALIGNED_ACCESS':
             flag = 'BPF_F_ANY_ALIGNMENT'
+        case 'BPF_F_TEST_STATE_FREQ':
+            flag = text
         case _:
             logging.warning(f'Unsupported .flag: {text}')
     return flag, sleepable
