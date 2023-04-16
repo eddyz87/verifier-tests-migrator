@@ -509,6 +509,7 @@ char _license[] SEC("license") = "GPL";''')
         self._aux('''
 { "t1", },
 { "t2", .result = ACCEPT, },
+{ "t2.1", .result = ACCEPT, .runs = -1 },
 { "t3", .result = VERBOSE_ACCEPT, },
 { "t4", .result = REJECT, },
 { "t5", .result = ACCEPT, .errstr = "x" },
@@ -535,6 +536,15 @@ SEC("socket")
 __description("t2")
 __success __success_unpriv __retval(0)
 __naked void t2(void)
+{
+	asm volatile ("					\\
+"	::: __clobber_all);
+}
+
+SEC("socket")
+__description("t2.1")
+__success __success_unpriv
+__naked void t2_1(void)
 {
 	asm volatile ("					\\
 "	::: __clobber_all);
