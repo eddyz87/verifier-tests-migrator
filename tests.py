@@ -296,6 +296,8 @@ char _license[] SEC("license") = "GPL";''', options=Options(label_start=100))
 	//
 	BPF_ATOMIC_OP(BPF_DW, BPF_CMPXCHG, BPF_REG_10, BPF_REG_1, -8),
 	BPF_ATOMIC_OP(BPF_W, BPF_CMPXCHG, BPF_REG_10, BPF_REG_1, -4),
+        //
+        BPF_RAW_INSN(BPF_STX | BPF_ATOMIC | BPF_DW, BPF_REG_10, BPF_REG_0, -8, BPF_ADD),
 	},
 	.result = ACCEPT,
 },
@@ -328,6 +330,8 @@ __naked void atomic(void)
 	//						\\
 	r0 = cmpxchg_64(r10 - 8, r0, r1);		\\
 	w0 = cmpxchg32_32(r10 - 4, w0, w1);		\\
+	//						\\
+	lock *(u64 *)(r10 - 8) += r0;			\\
 "	::: __clobber_all);
 }
 

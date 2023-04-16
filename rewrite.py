@@ -541,6 +541,20 @@ class InsnMatchers:
         imm = Imm(m._pending_fixup.kfunc)
         return d('call {imm};')
 
+    # BPF_RAW_INSN(BPF_STX | BPF_ATOMIC | BPF_DW, BPF_REG_10, BPF_REG_0, -8, BPF_ADD),
+    def BPF_RAW_INSN___atomic_inc_store(m):
+        # TODO: more elaborate match here
+        m._next_arg().mtext('BPF_STX | BPF_ATOMIC | BPF_DW')
+        sz  = 'u64'
+        dst = m.reg()
+        src = m.reg()
+        sign, off = m.off()
+        op, fetch = m.atomic_op()
+        if fetch:
+            return d('{src} = atomic_fetch_{op}(({sz} *)({dst} {sign} {off}), {src});')
+        else:
+            return d('lock *({sz} *)({dst} {sign} {off}) {op} {src};')
+
     def BPF_EMIT_CALL(m):
         func = m.bpf_func_ident()
         return d('call {func};')
